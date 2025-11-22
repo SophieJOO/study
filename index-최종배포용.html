@@ -309,10 +309,9 @@
         <div class="rules-box">
             <h3>📋 출석 규칙</h3>
             <ul>
-                <li>✅ <strong>출석</strong>: 날짜 폴더안에 공부한 내용이 어떤 형식으로라도 들어가 있는 경우(사진, md파일, pdf 등 모두 가능)</li>
-                <li>🏖️ <strong>오프</strong>: OFF.md 파일로 오프 선언 (주당 최대 3회)</li>
-                <li>🏝️ <strong>장기오프</strong>: 구글 폼으로 사전 신청한 장기 오프(장기오프신청 구글폼 주소: https://forms.gle/vk4hWPfjaDCF4Kxe7)</li>
-                <li>✗ <strong>결석</strong>: 파일 미제출 (출석은 하였으나 여러 원인으로 인한 인증 실패의 경우 방장에게 말씀주시면 수동으로 체크해드립니다)</li>
+                <li>✅ <strong>출석</strong>: 날짜 폴더안에 공부한 내용이 어떤 형식으로라도 들어가 있는 경우</li>
+                <li>🏝️ <strong>장기오프</strong>: 구글 폼으로 사전 신청한 장기 오프</li>
+                <li>✗ <strong>결석</strong>: 파일 미제출</li>
                 <li>⚠️ <strong>경고</strong>: 3회 결석 시 경고</li>
                 <li>🚨 <strong>벌칙</strong>: 4회 이상 결석 시 벌칙 대상</li>
             </ul>
@@ -332,10 +331,6 @@
             <div class="legend-item">
                 <div class="legend-box attended">✓</div>
                 <span>출석</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-box off">🏖️</div>
-                <span>오프</span>
             </div>
             <div class="legend-item">
                 <div class="legend-box long-off">🏝️</div>
@@ -381,17 +376,6 @@
                 <h2>📊 <span id="summaryMonth"></span> 출석 요약 (1일 ~ <span id="totalDays">0</span>일)</h2>
                 <div class="member-summary" id="memberSummary">
                     <!-- 조원별 요약은 JS로 생성 -->
-                </div>
-            </div>
-
-            <!-- 이번 주 오프 현황 -->
-            <div class="summary" style="margin-top: 20px; background-color: #fff9c4;">
-                <h2>🏖️ 이번 주 오프 현황 (<span id="weekRange"></span>)</h2>
-                <div style="margin-bottom: 15px; color: #666; font-size: 14px;">
-                    ⚠️ 주당 최대 3회까지 오프 가능 | 3회 초과 시 모두 결석 처리
-                </div>
-                <div class="member-summary" id="weeklyOffSummary">
-                    <!-- 이번 주 오프 현황은 JS로 생성 -->
                 </div>
             </div>
 
@@ -824,105 +808,6 @@
                     ${statusText}${weekOffText}${offExcessText}
                 `;
                 memberSummaryDiv.appendChild(memberCard);
-            }
-
-            const weeklyOffSummaryDiv = document.getElementById('weeklyOffSummary');
-            weeklyOffSummaryDiv.innerHTML = '';
-
-            const weekRange = getThisWeekRange();
-            let weekRangeText = '';
-            if (weekRange.startsInPrevMonth) {
-                weekRangeText = `${weekRange.prevMonth + 1}/${weekRange.prevMonthStart} ~ ${month + 1}/${weekRange.end}`;
-            } else {
-                weekRangeText = `${month + 1}/${weekRange.start} ~ ${month + 1}/${weekRange.end}`;
-            }
-            document.getElementById('weekRange').textContent = weekRangeText;
-
-            for (const memberName in data) {
-                const member = data[memberName];
-                let thisWeekOff = 0;
-                const offDates = [];
-
-                if (weekRange.startsInPrevMonth && prevMonthData && prevMonthData[memberName]) {
-                    const prevMember = prevMonthData[memberName];
-                    const prevMonthDays = new Date(weekRange.prevMonthYear, weekRange.prevMonth + 1, 0).getDate();
-
-                    for (let prevDay = weekRange.prevMonthStart; prevDay <= prevMonthDays; prevDay++) {
-                        const prevDayStatus = prevMember.기록 && prevMember.기록[prevDay.toString()];
-                        if (prevDayStatus && prevDayStatus.status === 'OFF') {
-                            thisWeekOff++;
-                            offDates.push({
-                                display: `${weekRange.prevMonth + 1}/${prevDay}`,
-                                month: weekRange.prevMonth,
-                                day: prevDay
-                            });
-                        }
-                    }
-                }
-
-                for (let i = 1; i <= currentDay; i++) {
-                    const dayStatus = member.기록 && member.기록[i.toString()];
-                    if (dayStatus && dayStatus.status === 'OFF') {
-                        let isThisWeek = false;
-                        if (weekRange.startsInPrevMonth) {
-                            if (i >= 1 && i <= weekRange.end) {
-                                isThisWeek = true;
-                            }
-                        } else {
-                            if (i >= weekRange.start && i <= weekRange.end) {
-                                isThisWeek = true;
-                            }
-                        }
-
-                        if (isThisWeek) {
-                            thisWeekOff++;
-                            offDates.push({
-                                display: `${month + 1}/${i}`,
-                                month: month,
-                                day: i
-                            });
-                        }
-                    }
-                }
-
-                if (thisWeekOff > 0) {
-                    const weeklyCard = document.createElement('div');
-                    weeklyCard.className = 'member-card';
-
-                    if (thisWeekOff >= 3) {
-                        weeklyCard.classList.add('penalty');
-                    } else if (thisWeekOff >= 2) {
-                        weeklyCard.classList.add('warning');
-                    }
-
-                    const offDatesText = offDates.map(d => d.display).join(', ');
-
-                    let offStatusText = '';
-                    let offDatesDisplay = `<div style="margin-top: 8px; font-size: 14px; color: #666;">오프 사용일: <strong>${offDatesText}</strong></div>`;
-
-                    if (thisWeekOff > 3) {
-                        const excess = thisWeekOff - 3;
-                        const convertedDates = offDates.slice(-excess).map(d => d.display).join(', ');
-                        offStatusText = `<span style="color: #f44336; font-weight: bold;">🚨 한도 초과 (${thisWeekOff}/3회)</span><br><span style="color: #f44336;">→ 결석 처리: ${convertedDates}</span>`;
-                    } else if (thisWeekOff >= 3) {
-                        offStatusText = `<span style="color: #f44336; font-weight: bold;">🚨 한도 도달 (${thisWeekOff}/3회)</span>`;
-                    } else if (thisWeekOff >= 2) {
-                        offStatusText = `<span style="color: #ff9800; font-weight: bold;">⚠️ 주의 (${thisWeekOff}/3회)</span>`;
-                    } else {
-                        offStatusText = `<span style="color: #4CAF50;">✅ 정상 (${thisWeekOff}/3회)</span>`;
-                    }
-
-                    weeklyCard.innerHTML = `
-                        <strong style="font-size: 16px;">${escapeHtml(memberName)}</strong><br>
-                        ${offStatusText}
-                        ${offDatesDisplay}
-                    `;
-                    weeklyOffSummaryDiv.appendChild(weeklyCard);
-                }
-            }
-
-            if (weeklyOffSummaryDiv.children.length === 0) {
-                weeklyOffSummaryDiv.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">이번 주 오프를 사용한 조원이 없습니다.</div>';
             }
         }
 
