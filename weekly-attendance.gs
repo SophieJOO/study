@@ -378,3 +378,121 @@ function 이번달주간집계() {
   주간집계저장(year, month, 집계결과);
   주간집계JSON저장(year, month, 집계결과);
 }
+
+/**
+ * JSON 파일 ID 확인 (HTML 설정용)
+ * HTML의 JSON_FILE_IDS에 입력할 파일 ID를 출력합니다.
+ */
+function JSON파일ID확인() {
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+  // 현재 연월 계산
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const yearMonth = year + '-' + String(month).padStart(2, '0');
+
+  Logger.log('');
+  Logger.log('='.repeat(60));
+  Logger.log('📁 JSON 파일 ID 목록 (HTML 설정용)');
+  Logger.log('='.repeat(60));
+  Logger.log('');
+
+  // 1. 일간 출석 파일
+  const attendanceFileName = `attendance_summary_${yearMonth}.json`;
+  const attendanceFiles = folder.getFilesByName(attendanceFileName);
+
+  if (attendanceFiles.hasNext()) {
+    const file = attendanceFiles.next();
+    const fileId = file.getId();
+    const url = `https://drive.google.com/uc?export=download&id=${fileId}`;
+
+    Logger.log('📄 일간 출석 파일:');
+    Logger.log('   파일명: ' + attendanceFileName);
+    Logger.log('   파일 ID: ' + fileId);
+    Logger.log('   전체 URL: ' + url);
+    Logger.log('');
+  } else {
+    Logger.log('❌ 일간 출석 파일을 찾을 수 없습니다: ' + attendanceFileName);
+    Logger.log('   → 먼저 월말집계() 함수를 실행해주세요!');
+    Logger.log('');
+  }
+
+  // 2. 주간 집계 파일
+  const weeklyFileName = `weekly_summary_${yearMonth}.json`;
+  const weeklyFiles = folder.getFilesByName(weeklyFileName);
+
+  if (weeklyFiles.hasNext()) {
+    const file = weeklyFiles.next();
+    const fileId = file.getId();
+    const url = `https://drive.google.com/uc?export=download&id=${fileId}`;
+
+    Logger.log('📊 주간 집계 파일:');
+    Logger.log('   파일명: ' + weeklyFileName);
+    Logger.log('   파일 ID: ' + fileId);
+    Logger.log('   전체 URL: ' + url);
+    Logger.log('');
+  } else {
+    Logger.log('❌ 주간 집계 파일을 찾을 수 없습니다: ' + weeklyFileName);
+    Logger.log('   → 먼저 이번달주간집계() 함수를 실행해주세요!');
+    Logger.log('');
+  }
+
+  Logger.log('-'.repeat(60));
+  Logger.log('📋 HTML 설정 방법:');
+  Logger.log('-'.repeat(60));
+  Logger.log('');
+  Logger.log('1. GitHub에서 index.html 파일 열기');
+  Logger.log('2. Ctrl+F로 "JSON_FILE_IDS" 검색');
+  Logger.log('3. 위의 파일 ID들을 다음과 같이 입력:');
+  Logger.log('');
+  Logger.log('   const JSON_FILE_IDS = {');
+  Logger.log('       attendance: \'위의_일간_출석_파일_ID\',');
+  Logger.log('       weekly: \'위의_주간_집계_파일_ID\'');
+  Logger.log('   };');
+  Logger.log('');
+  Logger.log('4. 커밋 후 GitHub Pages에서 확인');
+  Logger.log('');
+  Logger.log('='.repeat(60));
+  Logger.log('');
+}
+
+/**
+ * JSON 폴더 URL 확인
+ * 전체 폴더의 파일 목록을 확인할 수 있습니다.
+ */
+function JSON폴더URL확인() {
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+  Logger.log('');
+  Logger.log('📁 JSON 폴더 정보:');
+  Logger.log('   폴더 ID: ' + CONFIG.JSON_FOLDER_ID);
+  Logger.log('   폴더명: ' + folder.getName());
+  Logger.log('   폴더 URL: ' + folder.getUrl());
+  Logger.log('');
+  Logger.log('📄 폴더 내 JSON 파일 목록:');
+  Logger.log('');
+
+  const files = folder.getFiles();
+  let count = 0;
+
+  while (files.hasNext()) {
+    const file = files.next();
+    const fileName = file.getName();
+
+    if (fileName.endsWith('.json')) {
+      count++;
+      Logger.log(`   ${count}. ${fileName}`);
+      Logger.log('      파일 ID: ' + file.getId());
+      Logger.log('      URL: https://drive.google.com/uc?export=download&id=' + file.getId());
+      Logger.log('');
+    }
+  }
+
+  if (count === 0) {
+    Logger.log('   (JSON 파일이 없습니다)');
+    Logger.log('');
+  }
+
+  Logger.log('='.repeat(60));
+}

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스터디 출석표 (주간 집계 포함)</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .last-update {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+        .rules-box {
+            background-color: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 30px;
+        }
+        .rules-box h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .rules-box ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .rules-box li {
+            margin: 5px 0;
+        }
+
+        /* 주간 통계 스타일 */
+        #weeklySummary {
+            margin-top: 50px;
+        }
+        #weeklySummary table {
+            font-size: 14px;
+            width: 100%;
+            border-collapse: collapse;
+        }
+        #weeklySummary th,
+        #weeklySummary td {
+            border: 1px solid #ddd;
+            padding: 10px 8px;
+            text-align: center;
+        }
+        #weeklySummary th {
+            font-weight: 600;
+        }
+        #weeklySummary .info-box {
+            background-color: #e3f2fd;
+            border: 2px solid #2196F3;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        #weeklySummary .legend {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+        }
+        #weeklySummary .legend-items {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        #weeklySummary .legend-box {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 1px solid #ddd;
+            vertical-align: middle;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 18px;
+            color: #666;
+        }
+        .error {
+            text-align: center;
+            padding: 50px;
+            color: #d32f2f;
+        }
+
+        /* 반응형 */
+        @media (max-width: 768px) {
+            #weeklySummary table {
+                font-size: 12px;
+            }
+            #weeklySummary th,
+            #weeklySummary td {
+                padding: 6px 4px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 스터디 출석표</h1>
+        <div class="last-update" id="lastUpdate">로딩 중...</div>
+
+        <div class="rules-box">
+            <h3>📌 출석 규칙</h3>
+            <ul>
+                <li>매일 새벽 3시까지 공부 인증 필수</li>
+                <li>장기오프는 구글 폼으로 사전 신청</li>
+                <li>결석 4회 이상 시 벌칙</li>
+            </ul>
+
+            <h3>📅 주간 집계 기준</h3>
+            <ul>
+                <li><strong>주 단위:</strong> 월요일 ~ 일요일 (7일)</li>
+                <li><strong>월 소속:</strong> 월요일이 속한 달의 주로 계산</li>
+                <li><strong>예시:</strong> 11월 25일(월) ~ 12월 1일(일) → <strong>11월 4주차</strong></li>
+                <li><strong>필요 인증:</strong> 주 4회 (장기오프 일수만큼 차감)</li>
+                <li><strong>진행중인 주:</strong> 일요일이 지나지 않은 주는 결석 계산 안함</li>
+            </ul>
+        </div>
+
+        <div id="loading" class="loading">데이터 로딩 중...</div>
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="attendanceContent" style="display: none;">
+            <!-- 출석표는 여기에 동적으로 생성됩니다 -->
+        </div>
+    </div>
+
+    <script>
+        // ⚠️ 여기에 실제 값을 입력하세요!
+        const JSON_FILE_IDS = {
+            attendance: 'YOUR_ATTENDANCE_JSON_FILE_ID',  // attendance_summary_{년월}.json 파일 ID
+            weekly: 'YOUR_WEEKLY_JSON_FILE_ID'           // weekly_summary_{년월}.json 파일 ID
+        };
+
+        // 현재 날짜 정보
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth();
+        const currentDay = now.getDate();
+
+        /**
+         * HTML 이스케이프
+         */
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        }
+
+        /**
+         * 주간 통계 렌더링
+         */
+        function renderWeeklySummary(weeklyData) {
+            let weeklyContainer = document.getElementById('weeklySummary');
+
+            if (!weeklyContainer) {
+                const container = document.querySelector('.container');
+                weeklyContainer = document.createElement('div');
+                weeklyContainer.id = 'weeklySummary';
+                container.appendChild(weeklyContainer);
+            }
+
+            let html = `
+                <h2 style="text-align: center; color: #333; margin-bottom: 20px;">
+                    📊 주간 출석 집계 (${weeklyData.년월})
+                </h2>
+
+                <div class="info-box">
+                    <h4 style="margin-top: 0; color: #1976D2;">ℹ️ ${weeklyData.안내.설명}</h4>
+                    <p style="margin: 5px 0;"><strong>예시:</strong> ${weeklyData.안내.예시}</p>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th rowspan="2" style="background-color: #2196F3; color: white;">조원</th>
+            `;
+
+            // 주차 헤더 생성
+            const 조원목록 = Object.values(weeklyData.조원별집계);
+            const 주차수 = 조원목록[0]?.주차별.length || 0;
+
+            for (let i = 1; i <= 주차수; i++) {
+                html += `<th colspan="2" style="background-color: #2196F3; color: white;">${i}주차</th>`;
+            }
+            html += `<th rowspan="2" style="background-color: #f44336; color: white;">총결석</th>`;
+            html += `</tr><tr>`;
+
+            // 인증/결석 서브 헤더
+            for (let i = 0; i < 주차수; i++) {
+                html += `
+                    <th style="background-color: #64B5F6; color: white; font-size: 12px;">인증</th>
+                    <th style="background-color: #64B5F6; color: white; font-size: 12px;">결석</th>
+                `;
+            }
+            html += `</tr></thead><tbody>`;
+
+            // 조원별 데이터
+            for (const [memberName, memberData] of Object.entries(weeklyData.조원별집계)) {
+                html += `<tr>`;
+                html += `<td style="font-weight: bold; text-align: left; padding-left: 15px;">${escapeHtml(memberName)}</td>`;
+
+                // 주차별 데이터
+                for (const week of memberData.주차별) {
+                    const 인증색 = week.인증 >= week.필요 ? '#e8f5e9' : '#ffebee';
+                    const 결석색 = week.결석 > 0 ? '#ffcdd2' : '#f5f5f5';
+
+                    // 진행중인 주는 "-" 표시
+                    const 인증표시 = week.전체장기오프 ? '🏝️' : `${week.인증}/${week.필요}`;
+                    const 결석표시 = week.상태 === '진행중' ? '-' : (week.전체장기오프 ? '-' : week.결석);
+
+                    html += `<td style="background-color: ${인증색};">${인증표시}</td>`;
+                    html += `<td style="background-color: ${결석색}; font-weight: ${week.결석 > 0 ? 'bold' : 'normal'};">${결석표시}</td>`;
+                }
+
+                // 총결석
+                const 총결석색 = memberData.총결석 >= 4 ? '#f44336' : memberData.총결석 === 3 ? '#ff9800' : '#4CAF50';
+                const 총결석텍스트색 = memberData.총결석 >= 3 ? 'white' : 'black';
+                html += `<td style="background-color: ${총결석색}; color: ${총결석텍스트색}; font-weight: bold;">${memberData.총결석}</td>`;
+
+                html += `</tr>`;
+            }
+
+            html += `</tbody></table>`;
+
+            // 범례 추가
+            html += `
+                <div class="legend">
+                    <h4 style="margin-top: 0;">📖 범례</h4>
+                    <div class="legend-items">
+                        <div><span class="legend-box" style="background-color: #e8f5e9;"></span> 인증 충족</div>
+                        <div><span class="legend-box" style="background-color: #ffebee;"></span> 인증 부족</div>
+                        <div><span class="legend-box" style="background-color: #ffcdd2;"></span> 결석 발생</div>
+                        <div><strong>-</strong> 진행중 (결석 미확정)</div>
+                        <div><strong>🏝️</strong> 전체 장기오프</div>
+                    </div>
+                </div>
+            `;
+
+            weeklyContainer.innerHTML = html;
+        }
+
+        /**
+         * 데이터 로드 및 렌더링
+         */
+        async function loadData() {
+            const loadingDiv = document.getElementById('loading');
+            const errorDiv = document.getElementById('error');
+            const contentDiv = document.getElementById('attendanceContent');
+
+            try {
+                loadingDiv.style.display = 'block';
+                errorDiv.style.display = 'none';
+
+                const yearMonth = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+                // JSON 파일 URL 구성
+                const baseUrl = 'https://drive.google.com/uc?export=download&id=';
+                const attendanceUrl = `${baseUrl}${JSON_FILE_IDS.attendance}`;
+                const weeklyUrl = `${baseUrl}${JSON_FILE_IDS.weekly}`;
+
+                // 출석 데이터 로드
+                console.log('출석 데이터 로딩:', attendanceUrl);
+                const attendanceResponse = await fetch(attendanceUrl);
+                if (!attendanceResponse.ok) {
+                    throw new Error(`출석 데이터 로드 실패: ${attendanceResponse.status}`);
+                }
+                const attendanceData = await attendanceResponse.json();
+                console.log('출석 데이터 로드 성공');
+
+                // 주간 통계 로드
+                let weeklyData = null;
+                try {
+                    console.log('주간 통계 로딩:', weeklyUrl);
+                    const weeklyResponse = await fetch(weeklyUrl);
+                    if (weeklyResponse.ok) {
+                        weeklyData = await weeklyResponse.json();
+                        console.log('주간 통계 로드 성공:', weeklyData);
+                    }
+                } catch (e) {
+                    console.log('주간 통계 로드 실패 (선택사항):', e);
+                }
+
+                // 출석표 표시 (여기서는 간단히 처리)
+                contentDiv.innerHTML = `
+                    <h2 style="text-align: center;">일간 출석표는 기존 index.html 코드를 사용하세요</h2>
+                    <p style="text-align: center; color: #666;">
+                        이 파일은 주간 통계 기능만 보여주는 예시입니다.<br>
+                        실제로는 floating535-lang/study-attendance의 index.html에<br>
+                        주간 통계 부분만 추가하시면 됩니다.
+                    </p>
+                `;
+                contentDiv.style.display = 'block';
+
+                // 주간 통계 렌더링
+                if (weeklyData) {
+                    renderWeeklySummary(weeklyData);
+                }
+
+                // 업데이트 시간 표시
+                document.getElementById('lastUpdate').textContent =
+                    `마지막 업데이트: ${new Date().toLocaleString('ko-KR')}`;
+
+                loadingDiv.style.display = 'none';
+
+            } catch (error) {
+                console.error('데이터 로드 오류:', error);
+                loadingDiv.style.display = 'none';
+                errorDiv.style.display = 'block';
+                errorDiv.innerHTML = `
+                    <h3>⚠️ 데이터 로드 실패</h3>
+                    <p>${error.message}</p>
+                    <p style="font-size: 14px; color: #666;">
+                        JSON 파일 ID를 확인하세요:<br>
+                        attendance: ${JSON_FILE_IDS.attendance}<br>
+                        weekly: ${JSON_FILE_IDS.weekly}
+                    </p>
+                `;
+            }
+        }
+
+        // 페이지 로드 시 데이터 로드
+        window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>
