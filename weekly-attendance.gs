@@ -55,9 +55,10 @@ function 월별주목록가져오기(year, month) {
  * @param {string} memberName - 조원 이름
  * @param {Date} 주시작 - 주 시작일 (월요일)
  * @param {Date} 주끝 - 주 종료일 (일요일)
- * @returns {Object} {인증횟수, 장기오프일수, 필요횟수, 결석}
+ * @param {boolean} 완료된주 - 주가 완료되었는지 여부 (기본값: true)
+ * @returns {Object} {인증횟수, 장기오프일수, 필요횟수, 결석, 주완료}
  */
-function 주간인증계산(memberName, 주시작, 주끝) {
+function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true) {
   let 인증횟수 = 0;
   let 장기오프일수 = 0;
 
@@ -89,13 +90,14 @@ function 주간인증계산(memberName, 주시작, 주끝) {
       장기오프일수,
       필요횟수: 0,
       결석: 0,
-      전체장기오프: true
+      전체장기오프: true,
+      주완료: 완료된주
     };
   }
 
-  // 결석 계산
+  // 결석 계산 - 주가 완료된 경우만
   let 결석 = 0;
-  if (인증횟수 < 필요횟수) {
+  if (완료된주 && 인증횟수 < 필요횟수) {
     const 부족 = 필요횟수 - 인증횟수;
 
     if (부족 === 1) 결석 = 1;
@@ -109,7 +111,8 @@ function 주간인증계산(memberName, 주시작, 주끝) {
     장기오프일수,
     필요횟수,
     결석,
-    전체장기오프: false
+    전체장기오프: false,
+    주완료: 완료된주
   };
 }
 
@@ -158,16 +161,24 @@ function 월별주간집계(year, month) {
 
   Logger.log(`총 ${주목록.length}개 주 발견`);
 
+  // 현재 날짜 (한국 시간)
+  const 오늘 = new Date();
+  const 오늘자정 = new Date(오늘.getFullYear(), 오늘.getMonth(), 오늘.getDate());
+
   // 각 주별 집계
   for (let weekIdx = 0; weekIdx < 주목록.length; weekIdx++) {
     const 주 = 주목록[weekIdx];
     const 주차 = weekIdx + 1;
 
-    Logger.log(`\n--- ${주차}주차: ${Utilities.formatDate(주.시작, 'Asia/Seoul', 'MM/dd')} ~ ${Utilities.formatDate(주.끝, 'Asia/Seoul', 'MM/dd')} ---`);
+    // 주가 완료되었는지 확인 (일요일이 지났으면 완료)
+    const 완료된주 = 주.끝 < 오늘자정;
+    const 주상태 = 완료된주 ? '완료' : '진행중';
+
+    Logger.log(`\n--- ${주차}주차: ${Utilities.formatDate(주.시작, 'Asia/Seoul', 'MM/dd')} ~ ${Utilities.formatDate(주.끝, 'Asia/Seoul', 'MM/dd')} (${주상태}) ---`);
 
     // 각 조원별 계산
     for (const memberName of Object.keys(CONFIG.MEMBERS)) {
-      const 결과 = 주간인증계산(memberName, 주.시작, 주.끝);
+      const 결과 = 주간인증계산(memberName, 주.시작, 주.끝, 완료된주);
 
       if (!조원결석[memberName]) {
         조원결석[memberName] = {
@@ -184,14 +195,16 @@ function 월별주간집계(year, month) {
         장기오프일수: 결과.장기오프일수,
         필요횟수: 결과.필요횟수,
         결석: 결과.결석,
-        전체장기오프: 결과.전체장기오프
+        전체장기오프: 결과.전체장기오프,
+        주완료: 결과.주완료
       });
 
       if (!결과.전체장기오프) {
         조원결석[memberName].총결석 += 결과.결석;
       }
 
-      Logger.log(`  ${memberName}: 인증 ${결과.인증횟수}/${결과.필요횟수}회 (장기오프 ${결과.장기오프일수}일) → 결석 ${결과.결석}회`);
+      const 상태표시 = 결과.주완료 ? `→ 결석 ${결과.결석}회` : '(진행중)';
+      Logger.log(`  ${memberName}: 인증 ${결과.인증횟수}/${결과.필요횟수}회 (장기오프 ${결과.장기오프일수}일) ${상태표시}`);
     }
   }
 
@@ -222,12 +235,12 @@ function 주간집계저장(year, month, 집계결과) {
     sheet = ss.insertSheet('주간집계');
 
     // 헤더 작성
-    sheet.getRange('A1:H1').setValues([[
-      '년월', '조원명', '주차', '인증', '필요', '장기오프일', '결석', '비고'
+    sheet.getRange('A1:I1').setValues([[
+      '년월', '조원명', '주차', '인증', '필요', '장기오프일', '결석', '상태', '비고'
     ]]);
-    sheet.getRange('A1:H1').setFontWeight('bold');
-    sheet.getRange('A1:H1').setBackground('#4CAF50');
-    sheet.getRange('A1:H1').setFontColor('white');
+    sheet.getRange('A1:I1').setFontWeight('bold');
+    sheet.getRange('A1:I1').setBackground('#4CAF50');
+    sheet.getRange('A1:I1').setFontColor('white');
   }
 
   const 년월 = `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -245,6 +258,7 @@ function 주간집계저장(year, month, 집계결과) {
 
   for (const [memberName, data] of Object.entries(집계결과)) {
     for (const 주상세 of data.주차별상세) {
+      const 상태 = 주상세.주완료 ? '완료' : '진행중';
       const 비고 = 주상세.전체장기오프 ? '전체장기오프' : '';
 
       rows.push([
@@ -255,16 +269,80 @@ function 주간집계저장(year, month, 집계결과) {
         주상세.필요횟수,
         주상세.장기오프일수,
         주상세.결석,
+        상태,
         비고
       ]);
     }
   }
 
   if (rows.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
   }
 
   Logger.log(`주간집계 시트에 ${rows.length}개 행 저장`);
+}
+
+/**
+ * 주간 집계 결과를 JSON 파일로 저장
+ * @param {number} year - 년도
+ * @param {number} month - 월 (0-based)
+ * @param {Object} 집계결과 - 월별주간집계() 결과
+ */
+function 주간집계JSON저장(year, month, 집계결과) {
+  const 년월 = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+  // JSON 데이터 생성
+  const jsonData = {
+    년월,
+    생성일시: new Date().toISOString(),
+    안내: {
+      주기준: '월요일 시작',
+      설명: '각 주는 월요일부터 일요일까지입니다. 월요일이 속한 달의 주로 계산됩니다.',
+      예시: '11월 25일(월)~12월 1일(일) → 11월 4주차'
+    },
+    조원별집계: {}
+  };
+
+  // 조원별 데이터 추가
+  for (const [memberName, data] of Object.entries(집계결과)) {
+    jsonData.조원별집계[memberName] = {
+      총결석: data.총결석,
+      주차별: data.주차별상세.map(주 => ({
+        주차: 주.주차,
+        인증: 주.인증횟수,
+        필요: 주.필요횟수,
+        장기오프: 주.장기오프일수,
+        결석: 주.결석,
+        상태: 주.주완료 ? '완료' : '진행중',
+        전체장기오프: 주.전체장기오프
+      }))
+    };
+  }
+
+  // JSON 파일로 저장
+  const jsonString = JSON.stringify(jsonData, null, 2);
+  const fileName = `weekly_summary_${년월}.json`;
+
+  try {
+    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+    // 기존 파일 삭제
+    const existingFiles = folder.getFilesByName(fileName);
+    while (existingFiles.hasNext()) {
+      existingFiles.next().setTrashed(true);
+    }
+
+    // 새 파일 생성
+    const file = folder.createFile(fileName, jsonString, MimeType.PLAIN_TEXT);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    const fileUrl = `https://drive.google.com/uc?export=download&id=${file.getId()}`;
+    Logger.log(`주간 집계 JSON 저장 완료: ${fileName}`);
+    Logger.log(`URL: ${fileUrl}`);
+
+  } catch (e) {
+    Logger.log(`주간 집계 JSON 저장 실패: ${e.message}`);
+  }
 }
 
 /**
@@ -285,6 +363,7 @@ function 주간집계자동실행() {
 
   const 집계결과 = 월별주간집계(year, month);
   주간집계저장(year, month, 집계결과);
+  주간집계JSON저장(year, month, 집계결과);
 }
 
 /**
@@ -297,4 +376,5 @@ function 이번달주간집계() {
 
   const 집계결과 = 월별주간집계(year, month);
   주간집계저장(year, month, 집계결과);
+  주간집계JSON저장(year, month, 집계결과);
 }
