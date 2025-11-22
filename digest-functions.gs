@@ -340,6 +340,13 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // 복사 전용 페이지
+  if (page === 'copy') {
+    return HtmlService.createHtmlOutputFromFile('copy-page')
+      .setTitle('카톡 복사 전용')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+
   // 다이제스트 페이지
   if (page === 'digest') {
     return HtmlService.createHtmlOutputFromFile('digest-page')

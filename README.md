@@ -50,9 +50,11 @@ study/
 ├── index (1).html               # 기존 출석표 HTML
 ├── digest-functions.gs          # 🆕 다이제스트 생성 함수
 ├── digest-page.html             # 🆕 다이제스트 웹페이지
+├── copy-page.html               # 🆕 자동 복사 페이지 (카톡 텍스트 전용)
 ├── SOLUTION_GUIDE.md            # 📖 상세 솔루션 가이드
 ├── INSTALLATION_GUIDE.md        # 🚀 빠른 설치 가이드 (일반/오픈채팅 공통)
 ├── OPENCHAT_AUTOMATION_GUIDE.md # 🤖 오픈채팅방 완전 자동화 가이드
+├── KAKAO_TEXT_GUIDE.md          # 📋 카톡 메시지에 바로 내용 표시하기
 └── README.md                    # 📄 프로젝트 개요 (이 파일)
 ```
 
@@ -103,6 +105,9 @@ study/
 **2단계: 설치 (채팅방 종류에 따라 선택)**
 - 🤖 **오픈채팅방** → **[OPENCHAT_AUTOMATION_GUIDE.md](./OPENCHAT_AUTOMATION_GUIDE.md)** (완전 자동화!)
 - 💬 **일반 단톡방** → **[INSTALLATION_GUIDE.md](./INSTALLATION_GUIDE.md)** (원클릭 공유)
+
+**2-1단계: (선택) 카톡에 바로 내용 표시**
+- 📋 **링크 대신 텍스트 전송 원하면** → **[KAKAO_TEXT_GUIDE.md](./KAKAO_TEXT_GUIDE.md)** (자동 복사 5초!)
 
 **3단계: 테스트 & 시작!**
 
