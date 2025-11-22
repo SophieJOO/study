@@ -42,10 +42,12 @@ function 마크다운을HTML로(markdown) {
 
   let html = markdown;
 
-  // 1. 특수 문자 이스케이프 (HTML 태그 제외)
-  html = html.replace(/&/g, '&amp;');
-  html = html.replace(/</g, '&lt;');
-  html = html.replace(/>/g, '&gt;');
+  // 1. 코드 블록 먼저 처리 (변환 전에 보호)
+  const codeBlocks = [];
+  html = html.replace(/`([^`]+)`/g, function(match, code) {
+    codeBlocks.push(code);
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+  });
 
   // 2. 제목 변환 (### → h3, ## → h2, # → h1)
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
@@ -53,40 +55,91 @@ function 마크다운을HTML로(markdown) {
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
   // 3. 굵게 **text** → <strong>text</strong>
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>');
 
-  // 4. 기울임 *text* → <em>text</em> (단, ** 처리 후)
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // 4. 기울임 *text* → <em>text</em>
+  html = html.replace(/\*([^\*]+)\*/g, '<em>$1</em>');
 
   // 5. 취소선 ~~text~~ → <del>text</del>
-  html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
+  html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
-  // 6. 인라인 코드 `code` → <code>code</code>
-  html = html.replace(/`(.+?)`/g, '<code>$1</code>');
+  // 6. 리스트 변환
+  const lines = html.split('\n');
+  let inList = false;
+  let result = [];
 
-  // 7. 리스트 변환
-  // 순서 없는 리스트: - item 또는 * item
-  html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
 
-  // 연속된 <li>를 <ul>로 감싸기
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, function(match) {
-    return '<ul>\n' + match + '</ul>\n';
-  });
+    // 들여쓰기된 리스트 (탭 또는 2칸 공백)
+    if (/^\t[\-\*] (.+)$/.test(line) || /^  [\-\*] (.+)$/.test(line)) {
+      const content = line.replace(/^\t[\-\*] /, '').replace(/^  [\-\*] /, '');
+      if (!inList) {
+        result.push('<ul>');
+        inList = true;
+      }
+      result.push(`  <li style="margin-left: 20px;">${content}</li>`);
+    }
+    // 일반 리스트
+    else if (/^[\-\*] (.+)$/.test(line)) {
+      const content = line.replace(/^[\-\*] /, '');
+      if (!inList) {
+        result.push('<ul>');
+        inList = true;
+      }
+      result.push(`  <li>${content}</li>`);
+    }
+    // 리스트가 아닌 줄
+    else {
+      if (inList) {
+        result.push('</ul>');
+        inList = false;
+      }
+      result.push(line);
+    }
+  }
 
-  // 8. 들여쓰기된 리스트 (탭 또는 공백으로 시작)
-  html = html.replace(/^\t[\-\*] (.+)$/gm, '<li style="margin-left: 20px;">$1</li>');
-  html = html.replace(/^  [\-\*] (.+)$/gm, '<li style="margin-left: 20px;">$1</li>');
+  // 마지막 리스트 닫기
+  if (inList) {
+    result.push('</ul>');
+  }
 
-  // 9. 줄바꿈 처리: 빈 줄은 <br>, 문단은 <p>로
-  html = html.replace(/\n\n/g, '</p><p>');
-  html = '<p>' + html + '</p>';
+  html = result.join('\n');
 
-  // 10. 빈 <p></p> 제거
+  // 7. 문단 처리
+  html = html.replace(/\n\n+/g, '</p><p>');
+  html = html.replace(/\n/g, '<br>\n');
+
+  // h 태그와 ul 태그 주변의 불필요한 <br> 제거
+  html = html.replace(/<br>\s*<\/h([123])>/g, '</h$1>');
+  html = html.replace(/<h([123])><br>/g, '<h$1>');
+  html = html.replace(/<br>\s*<ul>/g, '<ul>');
+  html = html.replace(/<\/ul><br>/g, '</ul>');
+
+  // 전체를 <p>로 감싸기
+  if (!html.startsWith('<')) {
+    html = '<p>' + html;
+  }
+  if (!html.endsWith('>')) {
+    html = html + '</p>';
+  }
+
+  // 빈 <p></p> 제거
   html = html.replace(/<p><\/p>/g, '');
   html = html.replace(/<p>\s*<\/p>/g, '');
+  html = html.replace(/<p><br><\/p>/g, '');
+
+  // 8. 코드 블록 복원
+  codeBlocks.forEach((code, index) => {
+    html = html.replace(
+      `__CODE_BLOCK_${index}__`,
+      `<code>${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code>`
+    );
+  });
 
   return html;
 }
+
 
 /**
  * 일일 다이제스트 생성
