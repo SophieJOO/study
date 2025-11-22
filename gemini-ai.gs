@@ -243,11 +243,14 @@ function 일일AI다이제스트생성(dateStr) {
   for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
     const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
 
+    Logger.log(`\n${memberName} 파일 찾는 중... (폴더 ID: ${folderIds.length}개)`);
+
     for (const folderId of folderIds) {
       const content = 파일내용수집(memberName, folderId, dateStr);
 
       if (content && content.내용) {
-        Logger.log(`\n${memberName} AI 분석 중...`);
+        Logger.log(`  ✅ 파일 발견! (${content.파일목록.length}개)`);
+        Logger.log(`  AI 분석 시작...`);
 
         // AI 요약 및 평가
         const AI평가 = AI개별요약및평가(memberName, content.내용, content.파일목록);
@@ -263,16 +266,19 @@ function 일일AI다이제스트생성(dateStr) {
           AI평가
         });
 
-        break;
+        break; // 첫 번째 폴더에서 찾으면 중단
+      } else {
+        Logger.log(`  ❌ 이 폴더에서 찾을 수 없음`);
       }
     }
   }
 
   if (조원데이터.length === 0) {
-    Logger.log('어제 공부한 조원이 없습니다.');
+    Logger.log('\n❌ 어제 공부한 조원이 없습니다.');
     return null;
   }
 
+  Logger.log(`\n✅ ${조원데이터.length}명의 데이터 수집 완료`);
   Logger.log(`\n=== 통합 다이제스트 생성 중... ===`);
 
   // 통합 다이제스트 생성
@@ -288,40 +294,57 @@ function 일일AI다이제스트생성(dateStr) {
 }
 
 /**
- * 파일 내용 수집 (기존 함수와 유사하지만 더 상세)
+ * 파일 내용 수집 (기존 시스템 폴더 구조 사용)
  * @param {string} memberName - 조원 이름
- * @param {string} folderId - 폴더 ID
- * @param {string} dateStr - 날짜
+ * @param {string} folderId - 조원 폴더 ID
+ * @param {string} dateStr - 날짜 (yyyy-MM-dd)
  * @returns {Object} {내용, 파일목록}
  */
 function 파일내용수집(memberName, folderId, dateStr) {
   try {
-    const mainFolder = DriveApp.getFolderById(folderId);
-    const subfolders = mainFolder.getFolders();
+    // dateStr을 파싱: yyyy-MM-dd
+    const [year, monthStr, dayStr] = dateStr.split('-');
+    const month = parseInt(monthStr);
+    const day = parseInt(dayStr);
 
-    // 날짜 폴더 찾기
-    let targetFolder = null;
-    while (subfolders.hasNext()) {
-      const folder = subfolders.next();
-      const folderName = folder.getName().trim();
-      const dateInfo = 날짜추출(folderName);
+    const monthFolderName = `${year}-${monthStr}`; // 예: 2025-11
+    const dayFolderName = dayStr; // 예: 20
 
-      if (dateInfo && dateInfo.dateStr === dateStr) {
-        targetFolder = folder;
-        break;
-      }
+    Logger.log(`  찾는 중: ${monthFolderName}/${dayFolderName}`);
+
+    // 조원 폴더
+    const memberFolder = DriveApp.getFolderById(folderId);
+
+    // 월 폴더 찾기
+    const monthFolders = memberFolder.getFoldersByName(monthFolderName);
+    if (!monthFolders.hasNext()) {
+      Logger.log(`  월 폴더 없음: ${monthFolderName}`);
+      return null;
     }
 
-    if (!targetFolder) return null;
+    const monthFolder = monthFolders.next();
+
+    // 일 폴더 찾기
+    const dayFolders = monthFolder.getFoldersByName(dayFolderName);
+    if (!dayFolders.hasNext()) {
+      Logger.log(`  일 폴더 없음: ${dayFolderName}`);
+      return null;
+    }
+
+    const dayFolder = dayFolders.next();
+    Logger.log(`  ✅ 폴더 발견: ${dayFolder.getName()}`);
 
     let 전체내용 = '';
     const 파일목록 = [];
-    const files = targetFolder.getFiles();
+    const files = dayFolder.getFiles();
 
+    let fileCount = 0;
     while (files.hasNext()) {
       const file = files.next();
       const fileName = file.getName();
       const mimeType = file.getMimeType();
+
+      fileCount++;
 
       // 마크다운 파일
       if (fileName.toLowerCase().endsWith('.md')) {
@@ -334,7 +357,7 @@ function 파일내용수집(memberName, folderId, dateStr) {
             전체내용 += `[제목: ${titleMatch[1]}]\n\n`;
           }
 
-          전체내용 += mdContent + '\n\n';
+          전체내용 += mdContent + '\n\n' + '='.repeat(50) + '\n\n';
 
           파일목록.push({
             이름: fileName,
@@ -342,13 +365,28 @@ function 파일내용수집(memberName, folderId, dateStr) {
           });
 
         } catch (e) {
-          Logger.log(`MD 파일 읽기 실패: ${fileName}`);
+          Logger.log(`  MD 파일 읽기 실패: ${fileName}`);
+        }
+      }
+
+      // 텍스트 파일
+      else if (mimeType === MimeType.PLAIN_TEXT || fileName.toLowerCase().endsWith('.txt')) {
+        try {
+          const txtContent = file.getBlob().getDataAsString('UTF-8');
+          전체내용 += `[텍스트 파일: ${fileName}]\n\n${txtContent}\n\n` + '='.repeat(50) + '\n\n';
+
+          파일목록.push({
+            이름: fileName,
+            타입: 'Text'
+          });
+        } catch (e) {
+          Logger.log(`  텍스트 파일 읽기 실패: ${fileName}`);
         }
       }
 
       // PDF (파일명만 - OCR은 별도 구현 필요)
       else if (mimeType === MimeType.PDF) {
-        전체내용 += `[PDF 문서: ${fileName}]\n`;
+        전체내용 += `[PDF 문서: ${fileName}]\n\n`;
         파일목록.push({
           이름: fileName,
           타입: 'PDF'
@@ -357,7 +395,7 @@ function 파일내용수집(memberName, folderId, dateStr) {
 
       // 이미지
       else if (mimeType.startsWith('image/')) {
-        전체내용 += `[이미지: ${fileName}]\n`;
+        전체내용 += `[이미지: ${fileName}]\n\n`;
         파일목록.push({
           이름: fileName,
           타입: 'Image'
@@ -365,10 +403,25 @@ function 파일내용수집(memberName, folderId, dateStr) {
       }
     }
 
-    return 전체내용 ? { 내용: 전체내용, 파일목록 } : null;
+    Logger.log(`  총 ${fileCount}개 파일, 텍스트 추출: ${파일목록.length}개`);
+
+    if (전체내용.trim().length > 0) {
+      return { 내용: 전체내용, 파일목록 };
+    }
+
+    // 텍스트가 없어도 파일이 있으면 기본 정보 반환
+    if (파일목록.length > 0) {
+      return {
+        내용: `${memberName}이(가) ${dateStr}에 ${파일목록.length}개 파일을 제출했습니다.`,
+        파일목록
+      };
+    }
+
+    return null;
 
   } catch (e) {
-    Logger.log(`${memberName} 파일 수집 실패: ${e.message}`);
+    Logger.log(`  ${memberName} 파일 수집 실패: ${e.message}`);
+    Logger.log(`  Stack: ${e.stack}`);
     return null;
   }
 }
