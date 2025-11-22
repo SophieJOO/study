@@ -38,6 +38,7 @@
 - 📋 **개인별 공유**: 내 공부만 공유 가능
 - 📢 **전체 공유**: 하루 전체 요약본 공유
 - ⏱️ **1일 1분**: 방장만 링크 공유하면 끝
+- 🤖 **오픈채팅방 보너스**: 공식 봇으로 완전 자동 전송 가능!
 
 ---
 
@@ -50,13 +51,22 @@ study/
 ├── digest-functions.gs          # 🆕 다이제스트 생성 함수
 ├── digest-page.html             # 🆕 다이제스트 웹페이지
 ├── SOLUTION_GUIDE.md            # 📖 상세 솔루션 가이드
-├── INSTALLATION_GUIDE.md        # 🚀 빠른 설치 가이드
+├── INSTALLATION_GUIDE.md        # 🚀 빠른 설치 가이드 (일반/오픈채팅 공통)
+├── OPENCHAT_AUTOMATION_GUIDE.md # 🤖 오픈채팅방 완전 자동화 가이드
 └── README.md                    # 📄 프로젝트 개요 (이 파일)
 ```
 
 ---
 
 ## 🚀 빠른 시작
+
+### 📌 먼저 확인하세요!
+
+**오픈채팅방을 사용하시나요?**
+- ✅ **YES** → [OPENCHAT_AUTOMATION_GUIDE.md](./OPENCHAT_AUTOMATION_GUIDE.md) 보세요! (완전 자동화 가능!)
+- ⭕ **NO** (일반 단톡방) → 아래 가이드 따라하세요
+
+---
 
 ### 소요 시간: 약 15분
 
@@ -86,9 +96,15 @@ study/
 ## 📖 문서 가이드
 
 ### 🆕 처음 시작하는 분
-1. **[README.md](./README.md)** (현재 파일) - 프로젝트 개요 파악
-2. **[INSTALLATION_GUIDE.md](./INSTALLATION_GUIDE.md)** - 따라하기만 하면 됨
-3. **테스트 & 카톡 공유 시작!**
+
+**1단계: 프로젝트 이해**
+- **[README.md](./README.md)** (현재 파일) - 프로젝트 개요 파악
+
+**2단계: 설치 (채팅방 종류에 따라 선택)**
+- 🤖 **오픈채팅방** → **[OPENCHAT_AUTOMATION_GUIDE.md](./OPENCHAT_AUTOMATION_GUIDE.md)** (완전 자동화!)
+- 💬 **일반 단톡방** → **[INSTALLATION_GUIDE.md](./INSTALLATION_GUIDE.md)** (원클릭 공유)
+
+**3단계: 테스트 & 시작!**
 
 ### 🔧 커스터마이징 원하는 분
 1. **[SOLUTION_GUIDE.md](./SOLUTION_GUIDE.md)** - 전체 시스템 이해
@@ -96,7 +112,7 @@ study/
 3. 디자인 수정
 
 ### 🐛 문제 해결
-1. **[INSTALLATION_GUIDE.md](./INSTALLATION_GUIDE.md)** - 문제 해결 섹션
+1. **[INSTALLATION_GUIDE.md](./INSTALLATION_GUIDE.md)** 또는 **[OPENCHAT_AUTOMATION_GUIDE.md](./OPENCHAT_AUTOMATION_GUIDE.md)** - 문제 해결 섹션
 2. Apps Script 실행 로그 확인
 3. 트리거 실행 기록 확인
 
@@ -104,7 +120,25 @@ study/
 
 ## 💡 사용 시나리오
 
-### 시나리오 A: 자동 알림 링크 (추천 ⭐)
+### 시나리오 A: 오픈채팅방 - 완전 자동 (최고 추천! 🏆)
+
+**매일 저녁 8시**:
+- 🤖 시스템이 자동으로 다이제스트 생성
+
+**매일 저녁 8시 30분**:
+- 🤖 오픈채팅봇이 자동으로 메시지 전송
+- 📢 조원들에게 자동 알림
+
+**방장/담당자**:
+- 아무것도 안 함! (완전 자동) ✨
+
+**조원들**:
+- 링크 클릭해서 서로의 공부 내용 확인
+- 댓글로 피드백 & 질문
+
+---
+
+### 시나리오 B: 일반 단톡방 - 원클릭 공유 (추천 ⭐)
 
 **매일 저녁 8시**:
 - 🤖 시스템이 자동으로 다이제스트 생성
@@ -118,7 +152,9 @@ study/
 - 링크 클릭해서 서로의 공부 내용 확인
 - 댓글로 피드백 & 질문
 
-### 시나리오 B: 개인별 공유
+---
+
+### 시나리오 C: 개인별 공유
 
 **각 조원**:
 1. 공부 완료 후 다이제스트 페이지 방문
