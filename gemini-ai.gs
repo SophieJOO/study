@@ -531,3 +531,54 @@ function 실제폴더구조확인() {
     Logger.log(e.stack);
   }
 }
+
+/**
+ * 🔍 AI 다이제스트 저장 폴더 확인
+ * AI 다이제스트 파일이 저장되는 폴더의 이름과 URL을 출력
+ */
+function AI저장폴더확인() {
+  try {
+    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+    const folderName = folder.getName();
+    const folderUrl = folder.getUrl();
+
+    Logger.log(`=== AI 다이제스트 저장 위치 ===`);
+    Logger.log(`폴더명: ${folderName}`);
+    Logger.log(`폴더 URL: ${folderUrl}`);
+    Logger.log(`폴더 ID: ${CONFIG.JSON_FOLDER_ID}`);
+
+    Logger.log(`\n최근 생성된 AI 다이제스트 파일:`);
+    const files = folder.getFiles();
+    const aiFiles = [];
+
+    while (files.hasNext()) {
+      const file = files.next();
+      const fileName = file.getName();
+      if (fileName.startsWith('ai-digest-')) {
+        aiFiles.push({
+          name: fileName,
+          date: file.getLastUpdated(),
+          url: file.getUrl()
+        });
+      }
+    }
+
+    // 날짜 순으로 정렬
+    aiFiles.sort((a, b) => b.date - a.date);
+
+    // 최근 5개만 출력
+    aiFiles.slice(0, 5).forEach((file, index) => {
+      Logger.log(`  ${index + 1}. ${file.name}`);
+      Logger.log(`     수정일: ${Utilities.formatDate(file.date, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')}`);
+      Logger.log(`     URL: ${file.url}`);
+    });
+
+    if (aiFiles.length === 0) {
+      Logger.log(`  ❌ AI 다이제스트 파일이 없습니다.`);
+    }
+
+  } catch (e) {
+    Logger.log(`❌ 오류 발생: ${e.message}`);
+    Logger.log(e.stack);
+  }
+}
