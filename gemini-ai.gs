@@ -492,3 +492,58 @@ function AI다이제스트테스트() {
 function 어제AI다이제스트생성() {
   일일AI다이제스트생성(); // dateStr 없으면 자동으로 어제
 }
+
+/**
+ * 🔍 디버깅: 실제 폴더 구조 확인
+ * 한 조원의 폴더 안에 어떤 하위 폴더들이 있는지 확인
+ */
+function 실제폴더구조확인() {
+  // 첫 번째 조원의 폴더 ID 가져오기
+  const firstMember = Object.entries(CONFIG.MEMBERS)[0];
+  const memberName = firstMember[0];
+  const folderIdOrArray = firstMember[1];
+  const folderId = Array.isArray(folderIdOrArray) ? folderIdOrArray[0] : folderIdOrArray;
+
+  Logger.log(`=== ${memberName} 폴더 구조 확인 ===`);
+  Logger.log(`폴더 ID: ${folderId}\n`);
+
+  try {
+    const memberFolder = DriveApp.getFolderById(folderId);
+    Logger.log(`📁 조원 폴더: ${memberFolder.getName()}`);
+    Logger.log(`\n하위 폴더 목록:`);
+
+    const subFolders = memberFolder.getFolders();
+    let count = 0;
+
+    while (subFolders.hasNext() && count < 20) {  // 최대 20개만 출력
+      const folder = subFolders.next();
+      const folderName = folder.getName();
+
+      Logger.log(`  ${count + 1}. ${folderName}`);
+
+      // 첫 번째 하위 폴더의 내부도 확인
+      if (count === 0) {
+        Logger.log(`     └─ ${folderName} 안의 하위 폴더:`);
+        const subSubFolders = folder.getFolders();
+        let subCount = 0;
+        while (subSubFolders.hasNext() && subCount < 10) {
+          const subFolder = subSubFolders.next();
+          Logger.log(`        ${subCount + 1}. ${subFolder.getName()}`);
+          subCount++;
+        }
+      }
+
+      count++;
+    }
+
+    if (count === 0) {
+      Logger.log(`  ❌ 하위 폴더가 없습니다!`);
+    } else {
+      Logger.log(`\n총 ${count}개의 하위 폴더가 있습니다.`);
+    }
+
+  } catch (e) {
+    Logger.log(`❌ 오류 발생: ${e.message}`);
+    Logger.log(e.stack);
+  }
+}
