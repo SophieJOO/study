@@ -621,15 +621,23 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
   const htmlFile = folder.createFile(htmlFileName, htmlContent, MimeType.HTML);
   htmlFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
-  const htmlUrl = htmlFile.getUrl();
-
   Logger.log(`\n파일 저장 완료:`);
   Logger.log(`  - ${fullFileName} (전체 원본 내용)`);
   Logger.log(`  - ${summaryFileName} (간단 요약)`);
   Logger.log(`  - ${jsonFileName} (JSON 데이터)`);
-  Logger.log(`  - ${htmlFileName} (HTML 미리보기) ⭐ 카톡 공유용`);
-  Logger.log(`\n📱 카톡 공유 링크:`);
-  Logger.log(htmlUrl);
+  Logger.log(`  - ${htmlFileName} (HTML 파일)`);
+
+  // 웹앱 URL 생성 (digest-webapp.gs의 doGet 사용)
+  // 웹앱을 배포한 후에는 아래 URL이 자동으로 생성됩니다
+  Logger.log(`\n📱 카톡 공유 URL (웹앱 배포 필요):`);
+  Logger.log(`배포 후: https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec?date=${dateStr}`);
+  Logger.log(`\n💡 웹앱 배포 방법:`);
+  Logger.log(`1. Apps Script 상단 "배포" 클릭`);
+  Logger.log(`2. "새 배포" 선택`);
+  Logger.log(`3. 유형: "웹 앱"`);
+  Logger.log(`4. 실행 계정: "나"`);
+  Logger.log(`5. 액세스 권한: "모든 사용자"`);
+  Logger.log(`6. 배포 클릭 → URL 복사`);
 }
 
 /**
