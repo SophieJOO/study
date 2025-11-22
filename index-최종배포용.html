@@ -456,6 +456,12 @@
                 return;
             }
 
+            // 데이터 구조 검증
+            if (!weeklyData.조원별집계 || !weeklyData.안내) {
+                console.error('주간 통계 데이터 구조 오류:', weeklyData);
+                return;
+            }
+
             let weeklyContainer = document.getElementById('weeklySummary');
 
             if (!weeklyContainer) {
@@ -465,14 +471,18 @@
                 container.appendChild(weeklyContainer);
             }
 
+            const 년월 = weeklyData.년월 || '';
+            const 설명 = weeklyData.안내?.설명 || '각 주는 월요일부터 일요일까지입니다. 월요일이 속한 달의 주로 계산됩니다.';
+            const 예시 = weeklyData.안내?.예시 || '11월 25일(월)~12월 1일(일) → 11월 4주차';
+
             let html = `
                 <h2 style="text-align: center; color: #333; margin-bottom: 20px;">
-                    📊 주간 출석 집계 (${weeklyData.년월})
+                    📊 주간 출석 집계 (${년월})
                 </h2>
 
                 <div class="info-box">
-                    <h4 style="margin-top: 0; color: #1976D2;">ℹ️ ${weeklyData.안내.설명}</h4>
-                    <p style="margin: 5px 0;"><strong>예시:</strong> ${weeklyData.안내.예시}</p>
+                    <h4 style="margin-top: 0; color: #1976D2;">ℹ️ ${설명}</h4>
+                    <p style="margin: 5px 0;"><strong>예시:</strong> ${예시}</p>
                 </div>
 
                 <table>
