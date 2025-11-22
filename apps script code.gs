@@ -1,13 +1,12 @@
 /**
- * 스터디 출석 자동화 시스템 v2.2 (구글 폼 연동 버전)
- * 오프 제도 + 마감시간 제도 + 장기오프 제도 (구글 폼) 추가 버전
- * * 새로운 기능:
- * - OFF.md 파일로 오프 선언
- * - 주당 3회까지 오프 가능
- * - 주간 통계 자동 계산
+ * 스터디 출석 자동화 시스템 v3.0 (주간 집계 + AI 통합 버전)
+ * 마감시간 제도 + 장기오프 제도 (구글 폼) 통합 버전
+ * * 주요 기능:
  * - 새벽 3시 마감 제도 (미제출 시 자동 결석)
- * - 🆕 장기오프 제도 (구글 폼으로 사전 신청)
- * - 🆕 구글 폼 응답 자동 처리
+ * - 장기오프 제도 (구글 폼으로 사전 신청)
+ * - 구글 폼 응답 자동 처리
+ * - 주간 집계 시스템 (월요일 기준, 주 4회 인증 필요)
+ * - Gemini AI 자동 요약 및 질 평가
  * * 설치 방법:
  * 1. Google Forms에서 "장기오프 신청" 폼 생성
  * 2. 폼을 기존 스프레드시트에 연결
@@ -43,12 +42,7 @@ const CONFIG = {
   
   // JSON 파일 출력 폴더 ID
   JSON_FOLDER_ID: '1el9NDYDGfWlUEkBzI1GT_1TULLoBnSsQ',
-  
-  // 오프 제도 설정
-  OFF_FILENAME: 'OFF.md',
-  MAX_OFF_PER_WEEK: 3,
-  MIN_ATTENDANCE_PER_WEEK: 4,
-  
+
   // 마감시간 설정
   DEADLINE_HOUR: 3,
   
@@ -173,7 +167,7 @@ function 출석체크_메인() {
 
               // 🆕 장기오프 체크 (최우선)
               const longOffInfo = 장기오프확인(memberName, dateStr);
-              
+
               if (longOffInfo.isLongOff) {
                 Logger.log(`    🏝️ ${dateStr} - 장기오프 (${longOffInfo.reason})`);
                 출석기록추가(memberName, dateStr, [], CONFIG.LONG_OFF_STATUS, longOffInfo.reason);
@@ -181,28 +175,18 @@ function 출석체크_메인() {
                 processedCount++;
                 continue;
               }
-              
-              // OFF.md 파일 체크
-              const isOff = OFF파일확인(folder);
-              
-              if (isOff) {
-                Logger.log(`    🏖️ ${dateStr} - 오프`);
-                출석기록추가(memberName, dateStr, [], 'OFF');
+
+              // 일반 출석 처리
+              const files = 파일목록및링크생성(folder);
+
+              if (files.length > 0) {
+                Logger.log(`    ✓ ${dateStr} - 출석 (${files.length}개 파일)`);
+                출석기록추가(memberName, dateStr, files, 'O');
                 processedDates.add(dateStr);
                 processedCount++;
               } else {
-                // 일반 출석 처리
-                const files = 파일목록및링크생성(folder);
-                
-                if (files.length > 0) {
-                  Logger.log(`    ✓ ${dateStr} - 출석 (${files.length}개 파일)`);
-                  출석기록추가(memberName, dateStr, files, 'O');
-                  processedDates.add(dateStr);
-                  processedCount++;
-                } else {
-                  Logger.log(`    ⚠ ${dateStr} - 폴더는 있지만 파일 없음`);
-                  skippedCount++;
-                }
+                Logger.log(`    ⚠ ${dateStr} - 폴더는 있지만 파일 없음`);
+                skippedCount++;
               }
             } else {
               skippedCount++;
@@ -224,10 +208,7 @@ function 출석체크_메인() {
     Logger.log(`  ✅ ${memberName} 완료: 총 ${processedDates.size}개 날짜 처리`);
     Logger.log('');
   }
-  
-  // 주간 오프 검증
-  주간오프검증();
-  
+
   // JSON 파일 생성
   JSON파일생성();
   
@@ -546,42 +527,17 @@ function 오늘날짜폴더찾기(parentFolder, targetDate) {
   return null;
 }
 
-/**
- * OFF.md 파일 확인
- * @returns {boolean} OFF.md 파일이 있으면 true
- */
-function OFF파일확인(folder) {
-  const files = folder.getFiles();
-  
-  while (files.hasNext()) {
-    const file = files.next();
-    const fileName = file.getName();
-    
-    // OFF.md 또는 off.md (대소문자 무시)
-    if (fileName.toLowerCase() === CONFIG.OFF_FILENAME.toLowerCase()) {
-      return true;
-    }
-  }
-  
-  return false;
-}
 
 /**
  * 폴더 내 모든 파일의 링크 생성
- * OFF.md는 제외
  */
 function 파일목록및링크생성(folder) {
   const files = [];
   const fileIterator = folder.getFiles();
-  
+
   while (fileIterator.hasNext()) {
     const file = fileIterator.next();
     const fileName = file.getName();
-    
-    // OFF.md는 파일 목록에서 제외
-    if (fileName.toLowerCase() === CONFIG.OFF_FILENAME.toLowerCase()) {
-      continue;
-    }
     
     // 파일 공유 설정 시도 (실패해도 무시)
     try {
@@ -708,141 +664,6 @@ function 폴더ID추출(fileUrl) {
   return '';
 }
 
-/**
- * 주간 오프 검증 (개선 버전)
- * 규칙: 주당 3회 초과 오프 → 초과분만 결석 처리
- * - 월 경계를 넘는 주 처리
- * - 마지막 N개만 결석 처리 (모든 오프가 아님)
- * - 한 번 결석 처리된 것은 다시 처리하지 않음
- * 🆕 장기오프는 카운트에서 제외
- */
-function 주간오프검증() {
-  Logger.log('=== 주간 오프 검증 시작 (개선 버전) ===');
-  
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
-  
-  if (!sheet) return;
-  
-  const data = sheet.getDataRange().getValues();
-  
-  // 🔧 최근 2개월의 모든 주를 체크 (월 경계 처리)
-  const today = new Date();
-  const twoMonthsAgo = new Date(today);
-  twoMonthsAgo.setMonth(today.getMonth() - 2);
-  
-  // 조원별, 연도-주차별 오프 수집
-  const memberWeeklyOffs = {}; // { 'memberName': { 'YYYY-WW': [{날짜, 행번호, 상태}] } }
-  
-  for (let i = 1; i < data.length; i++) {
-    const [timestamp, name, dateStr, fileCount, links, folderLink, status, weekNum, reason] = data[i];
-    
-    if (!name || !dateStr) continue;
-    
-    const recordDate = new Date(dateStr);
-    
-    // 최근 2개월 데이터만 처리
-    if (recordDate < twoMonthsAgo) continue;
-    
-    // 조원별 Map 초기화
-    if (!memberWeeklyOffs[name]) {
-      memberWeeklyOffs[name] = {};
-    }
-    
-    // 해당 날짜의 ISO 주차 계산 (연도-주차)
-    const yearWeek = getISOYearWeek(recordDate);
-    
-    if (!memberWeeklyOffs[name][yearWeek]) {
-      memberWeeklyOffs[name][yearWeek] = [];
-    }
-    
-    // 일반 OFF만 수집 (장기오프 제외, 이미 결석 처리된 것도 제외)
-    if (status === 'OFF') {
-      memberWeeklyOffs[name][yearWeek].push({
-        date: recordDate,
-        dateStr: dateStr,
-        rowIndex: i + 1,  // 시트의 실제 행 번호 (1-based)
-        status: status
-      });
-    }
-  }
-  
-  // 각 조원의 각 주차별로 오프 3회 초과 체크
-  let totalConverted = 0;
-  
-  for (const [memberName, weeklyData] of Object.entries(memberWeeklyOffs)) {
-    for (const [yearWeek, offRecords] of Object.entries(weeklyData)) {
-      const offCount = offRecords.length;
-      
-      if (offCount > CONFIG.MAX_OFF_PER_WEEK) {
-        const excessCount = offCount - CONFIG.MAX_OFF_PER_WEEK;
-        
-        Logger.log(`⚠️ ${memberName} (${yearWeek}): 주간 오프 ${offCount}회 초과! (제한: ${CONFIG.MAX_OFF_PER_WEEK}회)`);
-        Logger.log(`  → 마지막 ${excessCount}개를 결석으로 전환합니다.`);
-        
-        // 날짜순으로 정렬 (시간순)
-        offRecords.sort((a, b) => a.date - b.date);
-        
-        // 마지막 N개만 결석 처리
-        const recordsToConvert = offRecords.slice(-excessCount);
-        
-        for (const record of recordsToConvert) {
-          // 해당 행의 상태를 'X'로 변경
-          sheet.getRange(record.rowIndex, 7).setValue('X');
-          
-          // 🆕 사유 컬럼(9열)에 "오프 초과" 기록
-          sheet.getRange(record.rowIndex, 9).setValue('주간 오프 3회 초과로 결석 전환');
-          
-          // 배경색을 결석 색상으로 변경
-          sheet.getRange(record.rowIndex, 1, 1, 9).setBackground('#ffcdd2');
-          
-          Logger.log(`    ✓ ${record.dateStr} (행 ${record.rowIndex}): OFF → X (결석)`);
-          totalConverted++;
-        }
-      }
-    }
-  }
-  
-  if (totalConverted > 0) {
-    Logger.log(`✅ 총 ${totalConverted}건의 초과 오프를 결석으로 전환했습니다.`);
-  } else {
-    Logger.log('✅ 주간 오프 한도를 초과한 조원이 없습니다.');
-  }
-  
-  Logger.log('=== 주간 오프 검증 완료 ===');
-}
-
-/**
- * ISO 8601 기준 연도-주차 계산
- * 월요일 시작 기준으로 연도-주차 반환 (예: "2024-44")
- * @param {Date} date 
- * @returns {string} "YYYY-WW" 형식
- */
-function getISOYearWeek(date) {
-  // ISO 8601: 목요일이 속한 주가 해당 연도에 속함
-  const target = new Date(date.valueOf());
-  const dayNum = (date.getDay() + 6) % 7; // 월요일=0, 일요일=6
-  target.setDate(target.getDate() - dayNum + 3); // 목요일로 이동
-  const firstThursday = new Date(target.getFullYear(), 0, 4);
-  const weekNum = Math.ceil((((target - firstThursday) / 86400000) + 1) / 7);
-  
-  return `${target.getFullYear()}-${String(weekNum).padStart(2, '0')}`;
-}
-
-/**
- * 🆕 과거 모든 주차 재검증 (수동 실행용)
- * 과거 데이터에서 놓친 초과 오프를 찾아서 결석 처리
- */
-function 과거주차_전체재검증() {
-  Logger.log('=== 과거 모든 주차 재검증 시작 ===');
-  Logger.log('⚠️ 주의: 이 함수는 모든 과거 데이터를 재검증합니다.');
-  Logger.log('');
-  
-  주간오프검증();
-  
-  Logger.log('');
-  Logger.log('=== 과거 모든 주차 재검증 완료 ===');
-}
 
 /**
  * JSON 파일 생성 및 공개 (수정 버전)
