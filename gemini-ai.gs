@@ -419,7 +419,46 @@ function 파일내용수집(memberName, folderId, dateStr) {
 function AI다이제스트저장(통합다이제스트, 조원데이터, dateStr) {
   const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
 
-  // 1. 통합 다이제스트 텍스트 파일 저장
+  // 1. 전체 원본 내용 파일 생성 (🆕 추가)
+  let 전체내용 = `📚 ${dateStr} 스터디 전체 내용\n`;
+  전체내용 += `생성일시: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')}\n`;
+  전체내용 += `총 ${조원데이터.length}명 참여\n`;
+  전체내용 += '='.repeat(80) + '\n\n';
+
+  조원데이터.forEach((data, index) => {
+    전체내용 += `\n${'#'.repeat(80)}\n`;
+    전체내용 += `# ${index + 1}. ${data.이름}\n`;
+    전체내용 += `${'#'.repeat(80)}\n\n`;
+
+    전체내용 += `📁 제출 파일 (${data.파일목록.length}개):\n`;
+    data.파일목록.forEach(file => {
+      전체내용 += `  - ${file.이름} (${file.타입})\n`;
+    });
+    전체내용 += '\n';
+
+    if (data.AI평가) {
+      전체내용 += `🤖 AI 평가:\n`;
+      전체내용 += `  - 질 평가: ${data.AI평가.질평가점수}/10점\n`;
+      전체내용 += `  - 키워드: ${data.AI평가.핵심키워드}\n`;
+      전체내용 += `  - 요약: ${data.AI평가.요약}\n\n`;
+    }
+
+    전체내용 += `📖 전체 내용:\n`;
+    전체내용 += '-'.repeat(80) + '\n';
+    전체내용 += data.내용 + '\n';
+    전체내용 += '-'.repeat(80) + '\n\n';
+  });
+
+  const fullFileName = `full-content-${dateStr}.txt`;
+  const existingFull = folder.getFilesByName(fullFileName);
+  while (existingFull.hasNext()) {
+    existingFull.next().setTrashed(true);
+  }
+
+  const fullFile = folder.createFile(fullFileName, 전체내용, MimeType.PLAIN_TEXT);
+  fullFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  // 2. AI 통합 다이제스트 텍스트 파일 저장
   const txtFileName = `ai-digest-${dateStr}.txt`;
   const existingTxt = folder.getFilesByName(txtFileName);
   while (existingTxt.hasNext()) {
@@ -429,7 +468,7 @@ function AI다이제스트저장(통합다이제스트, 조원데이터, dateStr
   const txtFile = folder.createFile(txtFileName, 통합다이제스트, MimeType.PLAIN_TEXT);
   txtFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
-  // 2. 상세 데이터 JSON 저장
+  // 3. 상세 데이터 JSON 저장
   const jsonData = {
     date: dateStr,
     generated: new Date().toISOString(),
@@ -440,7 +479,8 @@ function AI다이제스트저장(통합다이제스트, 조원데이터, dateStr
       keywords: data.AI평가?.핵심키워드,
       qualityScore: data.AI평가?.질평가점수,
       qualityComment: data.AI평가?.질평가코멘트,
-      files: data.파일목록
+      files: data.파일목록,
+      fullContent: data.내용 // 전체 원본 내용도 JSON에 포함
     }))
   };
 
@@ -457,9 +497,10 @@ function AI다이제스트저장(통합다이제스트, 조원데이터, dateStr
   );
   jsonFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
-  Logger.log(`AI 다이제스트 저장 완료:`);
-  Logger.log(`  - ${txtFileName}`);
-  Logger.log(`  - ${jsonFileName}`);
+  Logger.log(`파일 저장 완료:`);
+  Logger.log(`  - ${fullFileName} (전체 원본 내용)`);
+  Logger.log(`  - ${txtFileName} (AI 요약)`);
+  Logger.log(`  - ${jsonFileName} (JSON 데이터)`);
 }
 
 /**
