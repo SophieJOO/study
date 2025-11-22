@@ -302,41 +302,25 @@ function 일일AI다이제스트생성(dateStr) {
  */
 function 파일내용수집(memberName, folderId, dateStr) {
   try {
-    // dateStr을 파싱: yyyy-MM-dd
-    const [year, monthStr, dayStr] = dateStr.split('-');
-    const month = parseInt(monthStr);
-    const day = parseInt(dayStr);
-
-    const monthFolderName = `${year}-${monthStr}`; // 예: 2025-11
-    const dayFolderName = dayStr; // 예: 20
-
-    Logger.log(`  찾는 중: ${monthFolderName}/${dayFolderName}`);
+    // dateStr은 이미 yyyy-MM-dd 형식 (예: 2025-11-21)
+    Logger.log(`  찾는 중: ${dateStr}`);
 
     // 조원 폴더
     const memberFolder = DriveApp.getFolderById(folderId);
 
-    // 월 폴더 찾기
-    const monthFolders = memberFolder.getFoldersByName(monthFolderName);
-    if (!monthFolders.hasNext()) {
-      Logger.log(`  월 폴더 없음: ${monthFolderName}`);
+    // 날짜 폴더 찾기 (yyyy-MM-dd 형식)
+    const dateFolders = memberFolder.getFoldersByName(dateStr);
+    if (!dateFolders.hasNext()) {
+      Logger.log(`  날짜 폴더 없음: ${dateStr}`);
       return null;
     }
 
-    const monthFolder = monthFolders.next();
-
-    // 일 폴더 찾기
-    const dayFolders = monthFolder.getFoldersByName(dayFolderName);
-    if (!dayFolders.hasNext()) {
-      Logger.log(`  일 폴더 없음: ${dayFolderName}`);
-      return null;
-    }
-
-    const dayFolder = dayFolders.next();
-    Logger.log(`  ✅ 폴더 발견: ${dayFolder.getName()}`);
+    const dateFolder = dateFolders.next();
+    Logger.log(`  ✅ 폴더 발견: ${dateFolder.getName()}`);
 
     let 전체내용 = '';
     const 파일목록 = [];
-    const files = dayFolder.getFiles();
+    const files = dateFolder.getFiles();
 
     let fileCount = 0;
     while (files.hasNext()) {
