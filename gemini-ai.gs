@@ -33,6 +33,62 @@ function 마크다운클린업(content) {
 }
 
 /**
+ * 마크다운을 HTML로 변환
+ * @param {string} markdown - 마크다운 텍스트
+ * @returns {string} HTML
+ */
+function 마크다운을HTML로(markdown) {
+  if (!markdown) return '';
+
+  let html = markdown;
+
+  // 1. 특수 문자 이스케이프 (HTML 태그 제외)
+  html = html.replace(/&/g, '&amp;');
+  html = html.replace(/</g, '&lt;');
+  html = html.replace(/>/g, '&gt;');
+
+  // 2. 제목 변환 (### → h3, ## → h2, # → h1)
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // 3. 굵게 **text** → <strong>text</strong>
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  // 4. 기울임 *text* → <em>text</em> (단, ** 처리 후)
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // 5. 취소선 ~~text~~ → <del>text</del>
+  html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
+
+  // 6. 인라인 코드 `code` → <code>code</code>
+  html = html.replace(/`(.+?)`/g, '<code>$1</code>');
+
+  // 7. 리스트 변환
+  // 순서 없는 리스트: - item 또는 * item
+  html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+
+  // 연속된 <li>를 <ul>로 감싸기
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, function(match) {
+    return '<ul>\n' + match + '</ul>\n';
+  });
+
+  // 8. 들여쓰기된 리스트 (탭 또는 공백으로 시작)
+  html = html.replace(/^\t[\-\*] (.+)$/gm, '<li style="margin-left: 20px;">$1</li>');
+  html = html.replace(/^  [\-\*] (.+)$/gm, '<li style="margin-left: 20px;">$1</li>');
+
+  // 9. 줄바꿈 처리: 빈 줄은 <br>, 문단은 <p>로
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = '<p>' + html + '</p>';
+
+  // 10. 빈 <p></p> 제거
+  html = html.replace(/<p><\/p>/g, '');
+  html = html.replace(/<p>\s*<\/p>/g, '');
+
+  return html;
+}
+
+/**
  * 일일 다이제스트 생성
  * @param {string} dateStr - 날짜 (yyyy-MM-dd). 없으면 어제
  * @returns {string} 생성된 다이제스트
@@ -293,10 +349,234 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
   );
   jsonFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
+  // 4. HTML 파일 생성 (카톡 미리보기용)
+  let htmlContent = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📚 ${dateStr} 스터디 다이제스트</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+            line-height: 1.7;
+            color: #333;
+            background: #f8f9fa;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #4CAF50;
+        }
+        .header h1 {
+            font-size: 28px;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .meta {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+        .member-section {
+            margin-bottom: 50px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #4CAF50;
+        }
+        .member-section h2 {
+            font-size: 24px;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+        .member-section h2::before {
+            content: "👤";
+            margin-right: 10px;
+        }
+        .file-list {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .file-list h3 {
+            font-size: 16px;
+            color: #34495e;
+            margin-bottom: 10px;
+        }
+        .file-list ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        .file-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid #ecf0f1;
+            color: #555;
+        }
+        .file-list li:last-child {
+            border-bottom: none;
+        }
+        .file-list li::before {
+            content: "📄";
+            margin-right: 8px;
+        }
+        .content-section {
+            margin-top: 20px;
+        }
+        .content-section h3 {
+            font-size: 18px;
+            color: #34495e;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #ecf0f1;
+        }
+        .content-body {
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            line-height: 1.8;
+        }
+        .content-body h1 {
+            font-size: 22px;
+            color: #2c3e50;
+            margin: 25px 0 15px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #4CAF50;
+        }
+        .content-body h2 {
+            font-size: 20px;
+            color: #34495e;
+            margin: 20px 0 12px 0;
+        }
+        .content-body h3 {
+            font-size: 18px;
+            color: #555;
+            margin: 15px 0 10px 0;
+        }
+        .content-body ul {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+        .content-body li {
+            margin: 8px 0;
+        }
+        .content-body strong {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        .content-body em {
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        .content-body code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "Monaco", "Courier New", monospace;
+            font-size: 0.9em;
+            color: #e74c3c;
+        }
+        .content-body p {
+            margin: 12px 0;
+        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            .header h1 {
+                font-size: 22px;
+            }
+            .member-section {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 ${dateStr} 스터디 다이제스트</h1>
+            <div class="meta">
+                생성일시: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')} |
+                참여: ${조원데이터.length}명
+            </div>
+        </div>
+`;
+
+  조원데이터.forEach((data, index) => {
+    htmlContent += `
+        <div class="member-section">
+            <h2>${data.이름}</h2>
+
+            <div class="file-list">
+                <h3>📁 제출 파일 (${data.파일목록.length}개)</h3>
+                <ul>
+`;
+
+    data.파일목록.forEach(file => {
+      htmlContent += `                    <li>${file.이름} <span style="color: #95a5a6;">(${file.타입})</span></li>\n`;
+    });
+
+    htmlContent += `                </ul>
+            </div>
+
+            <div class="content-section">
+                <h3>📖 학습 내용</h3>
+                <div class="content-body">
+`;
+
+    // 마크다운을 HTML로 변환
+    const cleanedContent = 마크다운클린업(data.내용);
+    const htmlBody = 마크다운을HTML로(cleanedContent);
+    htmlContent += htmlBody;
+
+    htmlContent += `
+                </div>
+            </div>
+        </div>
+`;
+  });
+
+  htmlContent += `
+    </div>
+</body>
+</html>`;
+
+  const htmlFileName = `digest-${dateStr}.html`;
+  const existingHtml = folder.getFilesByName(htmlFileName);
+  while (existingHtml.hasNext()) {
+    existingHtml.next().setTrashed(true);
+  }
+
+  const htmlFile = folder.createFile(htmlFileName, htmlContent, MimeType.HTML);
+  htmlFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  const htmlUrl = htmlFile.getUrl();
+
   Logger.log(`\n파일 저장 완료:`);
   Logger.log(`  - ${fullFileName} (전체 원본 내용)`);
   Logger.log(`  - ${summaryFileName} (간단 요약)`);
   Logger.log(`  - ${jsonFileName} (JSON 데이터)`);
+  Logger.log(`  - ${htmlFileName} (HTML 미리보기) ⭐ 카톡 공유용`);
+  Logger.log(`\n📱 카톡 공유 링크:`);
+  Logger.log(htmlUrl);
 }
 
 /**
