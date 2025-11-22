@@ -29,7 +29,31 @@
             text-align: center;
             color: #666;
             font-size: 14px;
+            margin-bottom: 20px;
+        }
+        /* AI 다이제스트 버튼 */
+        .ai-digest-section {
+            text-align: center;
             margin-bottom: 30px;
+        }
+        .ai-digest-btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(102, 126, 234, 0.3);
+        }
+        .ai-digest-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+        }
+        .ai-digest-btn:active {
+            transform: translateY(0);
         }
         .rules-box {
             background-color: #fff3cd;
@@ -305,6 +329,13 @@
             마지막 업데이트: <span id="lastUpdate">-</span>
         </div>
 
+        <!-- AI 다이제스트 버튼 -->
+        <div class="ai-digest-section">
+            <a href="#" id="aiDigestBtn" class="ai-digest-btn" target="_blank">
+                🤖 AI 다이제스트 보기
+            </a>
+        </div>
+
         <!-- 규칙 안내 박스 -->
         <div class="rules-box">
             <h3>📋 출석 규칙</h3>
@@ -387,11 +418,19 @@
     <script>
         // ===== 설정 =====
         const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwhPLfmr85OkT0U6oWBGIrXlwyPJ4G1auTJUqXk4gHeK0FCABVn1QSLSx1ukL0b1WaX/exec';
+        const AI_DIGEST_FOLDER_ID = '1el9NDYDGfWlUEkBzI1GT_1TULLoBnSsQ'; // AI 다이제스트 저장 폴더
         const now = new Date();
         const year = now.getFullYear();
         const month = now.getMonth(); // 0-based (0=1월, 10=11월)
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const currentDay = now.getDate();
+
+        // AI 다이제스트 버튼 링크 설정
+        document.addEventListener('DOMContentLoaded', function() {
+            const aiDigestBtn = document.getElementById('aiDigestBtn');
+            const folderUrl = `https://drive.google.com/drive/folders/${AI_DIGEST_FOLDER_ID}`;
+            aiDigestBtn.href = folderUrl;
+        });
 
         // ===== 유틸리티 함수 =====
         function formatDate(date) {
