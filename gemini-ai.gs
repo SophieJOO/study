@@ -293,11 +293,29 @@ function 파일내용수집(memberName, folderId, dateStr) {
 
       // 이미지
       else if (mimeType.startsWith('image/')) {
-        전체내용 += `[이미지: ${fileName}]\n\n`;
-        파일목록.push({
-          이름: fileName,
-          타입: 'Image'
-        });
+        try {
+          // 이미지를 base64로 인코딩 (HTML 임베드용)
+          const blob = file.getBlob();
+          const base64Data = Utilities.base64Encode(blob.getBytes());
+
+          전체내용 += `[이미지: ${fileName}]\n\n`;
+
+          파일목록.push({
+            이름: fileName,
+            타입: 'Image',
+            mimeType: mimeType,
+            base64: base64Data  // HTML 렌더링용
+          });
+
+          Logger.log(`  이미지 인코딩 완료: ${fileName}`);
+        } catch (e) {
+          Logger.log(`  이미지 처리 실패: ${fileName} - ${e.message}`);
+          // 실패해도 파일 목록에는 추가
+          파일목록.push({
+            이름: fileName,
+            타입: 'Image'
+          });
+        }
       }
     }
 
@@ -549,6 +567,30 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
         .content-body p {
             margin: 12px 0;
         }
+        .image-gallery {
+            margin: 20px 0;
+        }
+        .image-gallery h4 {
+            font-size: 16px;
+            color: #34495e;
+            margin-bottom: 10px;
+        }
+        .image-item {
+            margin: 15px 0;
+            text-align: center;
+        }
+        .image-item img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 8px;
+        }
+        .image-caption {
+            font-size: 13px;
+            color: #7f8c8d;
+            font-style: italic;
+        }
         @media (max-width: 768px) {
             .container {
                 padding: 20px;
@@ -603,6 +645,30 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
     htmlContent += `
                 </div>
             </div>
+`;
+
+    // 이미지 갤러리 추가 (base64 데이터가 있는 이미지만)
+    const images = data.파일목록.filter(f => f.타입 === 'Image' && f.base64);
+    if (images.length > 0) {
+      htmlContent += `
+            <div class="image-gallery">
+                <h4>📸 첨부 이미지 (${images.length}개)</h4>
+`;
+      images.forEach(img => {
+        const dataUri = `data:${img.mimeType};base64,${img.base64}`;
+        htmlContent += `
+                <div class="image-item">
+                    <img src="${dataUri}" alt="${img.이름}">
+                    <div class="image-caption">${img.이름}</div>
+                </div>
+`;
+      });
+      htmlContent += `
+            </div>
+`;
+    }
+
+    htmlContent += `
         </div>
 `;
   });
