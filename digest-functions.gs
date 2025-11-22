@@ -98,13 +98,6 @@ function 공부내용추출(memberName, folderId, dateStr) {
       const mimeType = file.getMimeType();
       fileCount++;
 
-      // OFF.md 체크
-      if (fileName === 'OFF.md') {
-        content.상태 = '오프';
-        content.제목 = '오프';
-        return content;
-      }
-
       // 마크다운 파일 처리
       if (fileName.toLowerCase().endsWith('.md')) {
         try {
