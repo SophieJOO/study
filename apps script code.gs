@@ -1754,16 +1754,39 @@ function 폴더ID테스트() {
 
 // ==================== Web App 배포 ====================
 
+/**
+ * 통합 doGet 함수 - 모든 웹앱 기능 처리
+ * - date 파라미터: 다이제스트 HTML 서빙
+ * - month + type 파라미터: 출석/주간 JSON 반환
+ * - action=getDigest: 다이제스트 JSON 반환
+ */
 function doGet(e) {
   try {
-    const month = e.parameter.month || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
-    const type = e.parameter.type || 'attendance'; // 🆕 타입 파라미터 추가
+    const params = e.parameter;
+
+    // 1. 다이제스트 HTML 서빙 (date 파라미터)
+    if (params.date) {
+      return 다이제스트HTML서빙(params.date);
+    }
+
+    // 2. 다이제스트 JSON API (action=getDigest)
+    if (params.action === 'getDigest') {
+      const date = params.date || Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+      const digest = 저장된다이제스트불러오기(date);
+      return ContentService
+        .createTextOutput(JSON.stringify(digest))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3. 출석/주간 통계 JSON (month 파라미터)
+    const month = params.month || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+    const type = params.type || 'attendance';
 
     Logger.log('Web App 요청 받음. 월:', month, '타입:', type);
 
     const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
 
-    // 🆕 타입에 따라 다른 파일명 사용
+    // 타입에 따라 다른 파일명 사용
     let fileName;
     if (type === 'weekly') {
       fileName = `weekly_summary_${month}.json`;
@@ -1776,7 +1799,7 @@ function doGet(e) {
     if (!files.hasNext()) {
       Logger.log('JSON 파일 없음:', fileName);
 
-      // 🆕 주간 통계가 없을 때는 에러 반환
+      // 주간 통계가 없을 때는 에러 반환
       if (type === 'weekly') {
         return ContentService
           .createTextOutput(JSON.stringify({
@@ -1824,6 +1847,158 @@ function doGet(e) {
         message: error.toString()
       }))
       .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
+ * 다이제스트 HTML 서빙 (다이제스트 웹앱 기능)
+ */
+function 다이제스트HTML서빙(dateStr) {
+  try {
+    const htmlContent = 다이제스트HTML가져오기(dateStr);
+
+    if (!htmlContent) {
+      return HtmlService.createHtmlOutput(`
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>다이제스트 없음</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              height: 100vh;
+              margin: 0;
+              background: #f8f9fa;
+            }
+            .message {
+              text-align: center;
+              padding: 40px;
+              background: white;
+              border-radius: 12px;
+              box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            }
+            h1 { color: #e74c3c; margin-bottom: 10px; }
+            p { color: #7f8c8d; }
+          </style>
+        </head>
+        <body>
+          <div class="message">
+            <h1>❌ 다이제스트를 찾을 수 없습니다</h1>
+            <p>${dateStr} 날짜의 다이제스트가 없습니다.</p>
+            <p style="font-size: 14px; margin-top: 20px;">
+              URL 형식: <code>...exec?date=2025-11-21</code>
+            </p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
+    return HtmlService.createHtmlOutput(htmlContent)
+      .setTitle(`📚 ${dateStr} 스터디 다이제스트`)
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+
+  } catch (error) {
+    Logger.log(`다이제스트 HTML 서빙 오류: ${error.message}`);
+
+    return HtmlService.createHtmlOutput(`
+      <!DOCTYPE html>
+      <html lang="ko">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>오류</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: #f8f9fa;
+          }
+          .error {
+            text-align: center;
+            padding: 40px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+          }
+          h1 { color: #e74c3c; margin-bottom: 10px; }
+          p { color: #7f8c8d; }
+          code {
+            display: block;
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #e74c3c;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="error">
+          <h1>⚠️ 오류 발생</h1>
+          <p>다이제스트를 불러오는 중 오류가 발생했습니다.</p>
+          <code>${error.message}</code>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+}
+
+/**
+ * 저장된 HTML 다이제스트 파일 가져오기
+ */
+function 다이제스트HTML가져오기(dateStr) {
+  try {
+    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+    const htmlFileName = `digest-${dateStr}.html`;
+
+    const files = folder.getFilesByName(htmlFileName);
+
+    if (!files.hasNext()) {
+      Logger.log(`HTML 파일 없음: ${htmlFileName}`);
+      return null;
+    }
+
+    const file = files.next();
+    const htmlContent = file.getBlob().getDataAsString('UTF-8');
+
+    return htmlContent;
+
+  } catch (error) {
+    Logger.log(`HTML 파일 읽기 실패: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * 저장된 다이제스트 JSON 불러오기
+ */
+function 저장된다이제스트불러오기(dateStr) {
+  const fileName = `digest-${dateStr}.json`;
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+  try {
+    const files = folder.getFilesByName(fileName);
+    if (files.hasNext()) {
+      const file = files.next();
+      const content = file.getBlob().getDataAsString('UTF-8');
+      return JSON.parse(content);
+    }
+    return { error: true, message: '다이제스트 파일을 찾을 수 없습니다.' };
+  } catch (error) {
+    Logger.log(`다이제스트 JSON 로드 오류: ${error.message}`);
+    return { error: true, message: error.message };
   }
 }
 
