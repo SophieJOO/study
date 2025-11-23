@@ -1757,17 +1757,36 @@ function 폴더ID테스트() {
 function doGet(e) {
   try {
     const month = e.parameter.month || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
-    
-    Logger.log('Web App 요청 받음. 월:', month);
-    
+    const type = e.parameter.type || 'attendance'; // 🆕 타입 파라미터 추가
+
+    Logger.log('Web App 요청 받음. 월:', month, '타입:', type);
+
     const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
-    const fileName = `attendance_summary_${month}.json`;
-    
+
+    // 🆕 타입에 따라 다른 파일명 사용
+    let fileName;
+    if (type === 'weekly') {
+      fileName = `weekly_summary_${month}.json`;
+    } else {
+      fileName = `attendance_summary_${month}.json`;
+    }
+
     const files = folder.getFilesByName(fileName);
-    
+
     if (!files.hasNext()) {
-      Logger.log('JSON 파일 없음. 빈 데이터 반환...');
-      
+      Logger.log('JSON 파일 없음:', fileName);
+
+      // 🆕 주간 통계가 없을 때는 에러 반환
+      if (type === 'weekly') {
+        return ContentService
+          .createTextOutput(JSON.stringify({
+            error: true,
+            message: '주간 통계 파일이 없습니다. 이번달주간집계() 함수를 실행해주세요.'
+          }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      // 일반 출석 데이터가 없을 때는 빈 데이터 반환
       const emptyData = {};
       Object.keys(CONFIG.MEMBERS).forEach(name => {
         emptyData[name] = {
@@ -1781,24 +1800,24 @@ function doGet(e) {
           주간통계: {}
         };
       });
-      
+
       return ContentService
         .createTextOutput(JSON.stringify(emptyData))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    
+
     const file = files.next();
     const content = file.getBlob().getDataAsString();
-    
-    Logger.log('JSON 파일 로드 성공');
-    
+
+    Logger.log('JSON 파일 로드 성공:', fileName);
+
     return ContentService
       .createTextOutput(content)
       .setMimeType(ContentService.MimeType.JSON);
-      
+
   } catch (error) {
     Logger.log('Web App 오류:', error);
-    
+
     return ContentService
       .createTextOutput(JSON.stringify({
         error: true,
