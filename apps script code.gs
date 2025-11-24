@@ -3989,6 +3989,55 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
                 padding: 20px;
             }
         }
+
+        /* PDF 다운로드 버튼 스타일 */
+        .pdf-button {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+            transition: all 0.3s ease;
+        }
+        .pdf-button:hover {
+            background: #45a049;
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+            transform: translateY(-2px);
+        }
+        .pdf-button:active {
+            transform: translateY(0);
+        }
+
+        /* 인쇄(PDF 생성) 시 스타일 */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                padding: 20px;
+                max-width: 100%;
+            }
+            .pdf-button {
+                display: none; /* PDF 생성 시 버튼 숨김 */
+            }
+            .member-section {
+                page-break-inside: avoid; /* 섹션이 페이지 중간에 나뉘지 않도록 */
+                margin-bottom: 30px;
+            }
+            .image-gallery img {
+                max-width: 100%;
+                page-break-inside: avoid;
+            }
+        }
     </style>
 </head>
 <body>
@@ -3999,6 +4048,9 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
                 생성일시: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')} |
                 참여: ${조원데이터.length}명
             </div>
+            <button class="pdf-button" onclick="window.print()">
+                📄 PDF로 저장하기
+            </button>
         </div>
 `;
 
