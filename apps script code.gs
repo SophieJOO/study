@@ -844,9 +844,27 @@ function 초기설정() {
     .onMonthDay(1)
     .atHour(1)
     .create();
-  
+
   Logger.log('트리거 4 설정 완료: 매월 1일 오전 1시 전월 결산 생성');
-  
+
+  // 🆕 트리거 5: 매일 새벽 4시 AI 다이제스트 자동 생성 (전날 다이제스트)
+  ScriptApp.newTrigger('일일AI다이제스트생성')
+    .timeBased()
+    .atHour(4)
+    .everyDays(1)
+    .create();
+
+  Logger.log('트리거 5 설정 완료: 매일 새벽 4시 전날 다이제스트 자동 생성');
+
+  // 🆕 트리거 6: 매주 월요일 새벽 4시 주간집계 자동 생성
+  ScriptApp.newTrigger('이번달주간집계')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .atHour(4)
+    .create();
+
+  Logger.log('트리거 6 설정 완료: 매주 월요일 새벽 4시 주간집계 자동 생성');
+
   // 제출기록 시트
   let recordSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!recordSheet) {
