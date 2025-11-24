@@ -3773,7 +3773,7 @@ function 다이제스트시트초기화() {
   const sheet = ss.insertSheet(CONFIG.DIGEST_SHEET);
 
   // 헤더 설정
-  const headers = ['날짜', '파일ID', '생성시각'];
+  const headers = ['날짜', 'JSON데이터', '생성시각'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
 
   // 헤더 스타일
@@ -3785,7 +3785,7 @@ function 다이제스트시트초기화() {
 
   // 열 너비 설정
   sheet.setColumnWidth(1, 120);  // 날짜
-  sheet.setColumnWidth(2, 300);  // 파일ID
+  sheet.setColumnWidth(2, 600);  // JSON데이터 (넓게)
   sheet.setColumnWidth(3, 180);  // 생성시각
 
   // 헤더 고정
