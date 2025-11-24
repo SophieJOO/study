@@ -428,8 +428,17 @@
         // AI 다이제스트 버튼 링크 설정
         document.addEventListener('DOMContentLoaded', function() {
             const aiDigestBtn = document.getElementById('aiDigestBtn');
-            const folderUrl = `https://drive.google.com/drive/folders/${AI_DIGEST_FOLDER_ID}`;
-            aiDigestBtn.href = folderUrl;
+
+            // 어제 날짜 계산
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const dateStr = yesterday.getFullYear() + '-' +
+                          String(yesterday.getMonth() + 1).padStart(2, '0') + '-' +
+                          String(yesterday.getDate()).padStart(2, '0');
+
+            // 웹앱 URL + 날짜 파라미터
+            const digestUrl = `${WEB_APP_URL}?date=${dateStr}`;
+            aiDigestBtn.href = digestUrl;
         });
 
         // ===== 유틸리티 함수 =====
