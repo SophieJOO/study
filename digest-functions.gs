@@ -316,42 +316,9 @@ function 오늘의다이제스트메시지확인() {
 }
 
 /**
- * 웹앱 진입점 - HTML 페이지 제공
- * doGet 함수가 이미 있다면 해당 함수를 수정하세요
+ * ⚠️ 주의: 아래 함수는 apps script code.gs에 이미 통합되었습니다.
+ * 중복을 피하기 위해 주석 처리하거나 삭제하세요.
  */
-function doGet(e) {
-  const page = e.parameter.page || 'attendance';
-  const action = e.parameter.action;
-
-  // 다이제스트 데이터 API
-  if (action === 'getDigest') {
-    const date = e.parameter.date || Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
-    const digest = 저장된다이제스트불러오기(date);
-
-    return ContentService
-      .createTextOutput(JSON.stringify(digest))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  // 복사 전용 페이지
-  if (page === 'copy') {
-    return HtmlService.createHtmlOutputFromFile('copy-page')
-      .setTitle('카톡 복사 전용')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  }
-
-  // 다이제스트 페이지
-  if (page === 'digest') {
-    return HtmlService.createHtmlOutputFromFile('digest-page')
-      .setTitle('스터디 일일 다이제스트')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  }
-
-  // 기본: 기존 출석표
-  return HtmlService.createHtmlOutputFromFile('index (1)')
-    .setTitle('스터디 출석표')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
 
 /**
  * 저장된 다이제스트 JSON 불러오기
