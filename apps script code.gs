@@ -1989,7 +1989,7 @@ function 다이제스트HTML가져오기(dateStr) {
   try {
     Logger.log(`📖 다이제스트 읽기 시작: ${dateStr}`);
 
-    // 스프레드시트 시트에서 읽기 🆕
+    // 1. 스프레드시트 시트에서 파일 ID 찾기
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
 
@@ -2002,16 +2002,26 @@ function 다이제스트HTML가져오기(dateStr) {
     const data = sheet.getDataRange().getValues();
 
     // 날짜로 검색 (헤더 제외)
+    let fileId = null;
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === dateStr) {
-        const htmlContent = data[i][1];  // HTML내용 컬럼
-        Logger.log(`✅ 다이제스트 찾음: ${dateStr} (${htmlContent.length} 문자)`);
-        return htmlContent;
+        fileId = data[i][1];  // 파일ID 컬럼
+        Logger.log(`✅ 다이제스트 파일 ID 찾음: ${fileId}`);
+        break;
       }
     }
 
-    Logger.log(`❌ ${dateStr} 다이제스트 없음`);
-    return null;
+    if (!fileId) {
+      Logger.log(`❌ ${dateStr} 다이제스트 없음`);
+      return null;
+    }
+
+    // 2. 드라이브에서 HTML 파일 읽기
+    const file = DriveApp.getFileById(fileId);
+    const htmlContent = file.getBlob().getDataAsString('UTF-8');
+
+    Logger.log(`✅ HTML 파일 읽기 완료: ${htmlContent.length} 문자`);
+    return htmlContent;
 
   } catch (error) {
     Logger.log(`HTML 읽기 실패: ${error.message}`);
@@ -3746,7 +3756,8 @@ function 파일내용수집(memberName, folderId, dateStr) {
 /**
  * 🆕 다이제스트 시트 초기화
  * - 스프레드시트에 "다이제스트" 시트 생성
- * - 드라이브 파일 대신 시트에 저장하여 권한 문제 해결
+ * - 드라이브 HTML 파일 ID를 시트에 저장하여 관리
+ * - 배포 설정 "실행 계정: 나"로 권한 문제 해결
  */
 function 다이제스트시트초기화() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -3762,7 +3773,7 @@ function 다이제스트시트초기화() {
   const sheet = ss.insertSheet(CONFIG.DIGEST_SHEET);
 
   // 헤더 설정
-  const headers = ['날짜', 'HTML내용', '생성시각'];
+  const headers = ['날짜', '파일ID', '생성시각'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
 
   // 헤더 스타일
@@ -3774,20 +3785,21 @@ function 다이제스트시트초기화() {
 
   // 열 너비 설정
   sheet.setColumnWidth(1, 120);  // 날짜
-  sheet.setColumnWidth(2, 800);  // HTML내용 (넓게)
+  sheet.setColumnWidth(2, 300);  // 파일ID
   sheet.setColumnWidth(3, 180);  // 생성시각
 
   // 헤더 고정
   sheet.setFrozenRows(1);
 
   Logger.log('✅ 다이제스트 시트 초기화 완료');
-  Logger.log('💡 이제 다이제스트는 드라이브 파일 대신 이 시트에 저장됩니다');
+  Logger.log('💡 드라이브 HTML 파일 ID를 이 시트에서 관리합니다');
 }
 
 /**
- * 다이제스트 저장 (시트 기반) 🆕
- * - 드라이브 파일 대신 스프레드시트 시트에 저장
- * - 권한 문제 완전 해결!
+ * 다이제스트 저장 (드라이브 + 시트 하이브리드) 🆕
+ * - HTML 파일은 드라이브에 저장 (이미지 base64 포함 가능)
+ * - 파일 ID는 시트에 저장 (관리 편의성)
+ * - 배포 "실행 계정: 나"로 모든 사용자가 접근 가능
  * @param {string} 통합다이제스트 - 통합 다이제스트 텍스트
  * @param {Array} 조원데이터 - 조원별 상세 데이터
  * @param {string} dateStr - 날짜
@@ -4053,7 +4065,27 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
 </body>
 </html>`;
 
-  // 2. 스프레드시트 시트에 저장 🆕
+  Logger.log(`\n📏 HTML 길이: ${htmlContent.length} 문자`);
+
+  // 2. 드라이브에 HTML 파일 저장 (이미지 포함, 권한 문제 해결!)
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+  const htmlFileName = `digest-${dateStr}.html`;
+
+  // 기존 파일 삭제
+  const existingFiles = folder.getFilesByName(htmlFileName);
+  while (existingFiles.hasNext()) {
+    existingFiles.next().setTrashed(true);
+  }
+
+  // 새 파일 생성
+  const htmlFile = folder.createFile(htmlFileName, htmlContent, MimeType.HTML);
+  htmlFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  const fileId = htmlFile.getId();
+
+  Logger.log(`✅ 드라이브에 HTML 파일 저장: ${htmlFileName}`);
+  Logger.log(`  - 파일 ID: ${fileId}`);
+
+  // 3. 스프레드시트 시트에 파일 정보 저장 (HTML 대신 파일 ID 저장)
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
 
@@ -4074,16 +4106,17 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
     }
   }
 
-  // 새 데이터 추가 (맨 위에 추가 - 최신이 위로)
+  // 새 데이터 추가 (날짜, 파일ID, 생성시각)
   sheet.insertRowBefore(2);
   sheet.getRange(2, 1, 1, 3).setValues([[
     dateStr,
-    htmlContent,
+    fileId,  // HTML 내용 대신 드라이브 파일 ID 저장!
     timestamp
   ]]);
 
   Logger.log(`\n✅ 다이제스트 저장 완료!`);
   Logger.log(`  - 날짜: ${dateStr}`);
+  Logger.log(`  - 파일 ID: ${fileId}`);
   Logger.log(`  - HTML 길이: ${htmlContent.length} 문자`);
   Logger.log(`  - 참여자: ${조원데이터.length}명`);
   Logger.log(`  - 생성 시각: ${timestamp}`);
