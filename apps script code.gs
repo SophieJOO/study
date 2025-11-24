@@ -1761,11 +1761,19 @@ function 폴더ID테스트() {
  * - action=getDigest: 다이제스트 JSON 반환
  */
 function doGet(e) {
+  // ⚠️ 진단용 로그 - 이 로그가 보이지 않으면 doGet 자체가 실행되지 않는 것
+  Logger.log('========================================');
+  Logger.log('doGet 함수 시작!');
+  Logger.log('호출 시각:', new Date());
+  Logger.log('파라미터:', JSON.stringify(e.parameter));
+  Logger.log('========================================');
+
   try {
     const params = e.parameter;
 
     // 1. 다이제스트 HTML 서빙 (date 파라미터)
     if (params.date) {
+      Logger.log('다이제스트 HTML 서빙 시작. 날짜:', params.date);
       return 다이제스트HTML서빙(params.date);
     }
 
