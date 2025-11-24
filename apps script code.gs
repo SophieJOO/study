@@ -39,6 +39,7 @@ const CONFIG = {
   LONG_OFF_SHEET: '장기오프신청',
   ADMIN_SHEET: '관리자수정',  // 🆕 추가
   MONTHLY_SUMMARY_SHEET: '월별결산',  // 🆕 월별결산 시트
+  DIGEST_SHEET: '다이제스트',  // 🆕 다이제스트 시트 (드라이브 대신 시트 사용)
   
   // JSON 파일 출력 폴더 ID
   JSON_FOLDER_ID: '1el9NDYDGfWlUEkBzI1GT_1TULLoBnSsQ',
@@ -1968,23 +1969,34 @@ function 다이제스트HTML서빙(dateStr) {
  */
 function 다이제스트HTML가져오기(dateStr) {
   try {
-    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
-    const htmlFileName = `digest-${dateStr}.html`;
+    Logger.log(`📖 다이제스트 읽기 시작: ${dateStr}`);
 
-    const files = folder.getFilesByName(htmlFileName);
+    // 스프레드시트 시트에서 읽기 🆕
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
 
-    if (!files.hasNext()) {
-      Logger.log(`HTML 파일 없음: ${htmlFileName}`);
+    if (!sheet) {
+      Logger.log('⚠️ 다이제스트 시트가 없습니다.');
       return null;
     }
 
-    const file = files.next();
-    const htmlContent = file.getBlob().getDataAsString('UTF-8');
+    // 모든 데이터 가져오기
+    const data = sheet.getDataRange().getValues();
 
-    return htmlContent;
+    // 날짜로 검색 (헤더 제외)
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === dateStr) {
+        const htmlContent = data[i][1];  // HTML내용 컬럼
+        Logger.log(`✅ 다이제스트 찾음: ${dateStr} (${htmlContent.length} 문자)`);
+        return htmlContent;
+      }
+    }
+
+    Logger.log(`❌ ${dateStr} 다이제스트 없음`);
+    return null;
 
   } catch (error) {
-    Logger.log(`HTML 파일 읽기 실패: ${error.message}`);
+    Logger.log(`HTML 읽기 실패: ${error.message}`);
     throw error;
   }
 }
@@ -3714,84 +3726,58 @@ function 파일내용수집(memberName, folderId, dateStr) {
 }
 
 /**
- * 다이제스트 저장
+ * 🆕 다이제스트 시트 초기화
+ * - 스프레드시트에 "다이제스트" 시트 생성
+ * - 드라이브 파일 대신 시트에 저장하여 권한 문제 해결
+ */
+function 다이제스트시트초기화() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 기존 시트 삭제
+  const existing = ss.getSheetByName(CONFIG.DIGEST_SHEET);
+  if (existing) {
+    ss.deleteSheet(existing);
+    Logger.log('기존 다이제스트 시트 삭제됨');
+  }
+
+  // 새 시트 생성
+  const sheet = ss.insertSheet(CONFIG.DIGEST_SHEET);
+
+  // 헤더 설정
+  const headers = ['날짜', 'HTML내용', '생성시각'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  // 헤더 스타일
+  sheet.getRange(1, 1, 1, headers.length)
+    .setBackground('#4CAF50')
+    .setFontColor('#ffffff')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center');
+
+  // 열 너비 설정
+  sheet.setColumnWidth(1, 120);  // 날짜
+  sheet.setColumnWidth(2, 800);  // HTML내용 (넓게)
+  sheet.setColumnWidth(3, 180);  // 생성시각
+
+  // 헤더 고정
+  sheet.setFrozenRows(1);
+
+  Logger.log('✅ 다이제스트 시트 초기화 완료');
+  Logger.log('💡 이제 다이제스트는 드라이브 파일 대신 이 시트에 저장됩니다');
+}
+
+/**
+ * 다이제스트 저장 (시트 기반) 🆕
+ * - 드라이브 파일 대신 스프레드시트 시트에 저장
+ * - 권한 문제 완전 해결!
  * @param {string} 통합다이제스트 - 통합 다이제스트 텍스트
  * @param {Array} 조원데이터 - 조원별 상세 데이터
  * @param {string} dateStr - 날짜
  */
 function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) {
-  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+  Logger.log(`\n📝 다이제스트 저장 시작: ${dateStr}`);
 
-  // 1. 전체 원본 내용 파일 생성
-  let 전체내용 = `📚 ${dateStr} 스터디 전체 내용\n`;
-  전체내용 += `생성일시: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')}\n`;
-  전체내용 += `총 ${조원데이터.length}명 참여\n`;
-  전체내용 += '='.repeat(80) + '\n\n';
-
-  조원데이터.forEach((data, index) => {
-    전체내용 += `\n${'#'.repeat(80)}\n`;
-    전체내용 += `# ${index + 1}. ${data.이름}\n`;
-    전체내용 += `${'#'.repeat(80)}\n\n`;
-
-    전체내용 += `📁 제출 파일 (${data.파일목록.length}개):\n`;
-    data.파일목록.forEach(file => {
-      전체내용 += `  - ${file.이름} (${file.타입})\n`;
-    });
-    전체내용 += '\n';
-
-    전체내용 += `📖 전체 내용:\n`;
-    전체내용 += '-'.repeat(80) + '\n';
-    전체내용 += data.내용 + '\n';
-    전체내용 += '-'.repeat(80) + '\n\n';
-  });
-
-  const fullFileName = `full-content-${dateStr}.txt`;
-  const existingFull = folder.getFilesByName(fullFileName);
-  while (existingFull.hasNext()) {
-    existingFull.next().setTrashed(true);
-  }
-
-  const fullFile = folder.createFile(fullFileName, 전체내용, MimeType.PLAIN_TEXT);
-  fullFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  // 2. 간단 요약 파일 저장
-  const summaryFileName = `summary-${dateStr}.txt`;
-  const existingSummary = folder.getFilesByName(summaryFileName);
-  while (existingSummary.hasNext()) {
-    existingSummary.next().setTrashed(true);
-  }
-
-  const summaryFile = folder.createFile(summaryFileName, 통합다이제스트, MimeType.PLAIN_TEXT);
-  summaryFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  // 3. JSON 데이터 저장
-  const jsonData = {
-    date: dateStr,
-    generated: new Date().toISOString(),
-    summary: 통합다이제스트,
-    memberCount: 조원데이터.length,
-    members: 조원데이터.map(data => ({
-      name: data.이름,
-      fileCount: data.파일목록.length,
-      files: data.파일목록,
-      fullContent: data.내용
-    }))
-  };
-
-  const jsonFileName = `digest-${dateStr}.json`;
-  const existingJson = folder.getFilesByName(jsonFileName);
-  while (existingJson.hasNext()) {
-    existingJson.next().setTrashed(true);
-  }
-
-  const jsonFile = folder.createFile(
-    jsonFileName,
-    JSON.stringify(jsonData, null, 2),
-    MimeType.PLAIN_TEXT
-  );
-  jsonFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  // 4. HTML 파일 생성 (카톡 미리보기용)
+  // 1. HTML 파일 생성 (시트에 저장할 내용)
   let htmlContent = `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -4049,32 +4035,42 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
 </body>
 </html>`;
 
-  const htmlFileName = `digest-${dateStr}.html`;
-  const existingHtml = folder.getFilesByName(htmlFileName);
-  while (existingHtml.hasNext()) {
-    existingHtml.next().setTrashed(true);
+  // 2. 스프레드시트 시트에 저장 🆕
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
+
+  if (!sheet) {
+    Logger.log('⚠️ 다이제스트 시트가 없습니다. 다이제스트시트초기화() 함수를 먼저 실행하세요!');
+    throw new Error('다이제스트 시트가 없습니다. 다이제스트시트초기화() 함수를 먼저 실행하세요.');
   }
 
-  const htmlFile = folder.createFile(htmlFileName, htmlContent, MimeType.HTML);
-  htmlFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  // 생성 시각
+  const timestamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
 
-  Logger.log(`\n파일 저장 완료:`);
-  Logger.log(`  - ${fullFileName} (전체 원본 내용)`);
-  Logger.log(`  - ${summaryFileName} (간단 요약)`);
-  Logger.log(`  - ${jsonFileName} (JSON 데이터)`);
-  Logger.log(`  - ${htmlFileName} (HTML 파일)`);
+  // 기존 같은 날짜 데이터 삭제 (있으면)
+  const data = sheet.getDataRange().getValues();
+  for (let i = data.length - 1; i > 0; i--) {  // 헤더 제외하고 역순으로 검색
+    if (data[i][0] === dateStr) {
+      sheet.deleteRow(i + 1);
+      Logger.log(`기존 ${dateStr} 다이제스트 삭제됨`);
+    }
+  }
 
-  // 웹앱 URL 생성 (digest-webapp.gs의 doGet 사용)
-  // 웹앱을 배포한 후에는 아래 URL이 자동으로 생성됩니다
-  Logger.log(`\n📱 카톡 공유 URL (웹앱 배포 필요):`);
-  Logger.log(`배포 후: https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec?date=${dateStr}`);
-  Logger.log(`\n💡 웹앱 배포 방법:`);
-  Logger.log(`1. Apps Script 상단 "배포" 클릭`);
-  Logger.log(`2. "새 배포" 선택`);
-  Logger.log(`3. 유형: "웹 앱"`);
-  Logger.log(`4. 실행 계정: "나"`);
-  Logger.log(`5. 액세스 권한: "모든 사용자"`);
-  Logger.log(`6. 배포 클릭 → URL 복사`);
+  // 새 데이터 추가 (맨 위에 추가 - 최신이 위로)
+  sheet.insertRowBefore(2);
+  sheet.getRange(2, 1, 1, 3).setValues([[
+    dateStr,
+    htmlContent,
+    timestamp
+  ]]);
+
+  Logger.log(`\n✅ 다이제스트 저장 완료!`);
+  Logger.log(`  - 날짜: ${dateStr}`);
+  Logger.log(`  - HTML 길이: ${htmlContent.length} 문자`);
+  Logger.log(`  - 참여자: ${조원데이터.length}명`);
+  Logger.log(`  - 생성 시각: ${timestamp}`);
+  Logger.log(`\n📱 웹앱 URL로 확인 가능:`);
+  Logger.log(`https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec?date=${dateStr}`);
 }
 
 /**
