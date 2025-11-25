@@ -35,6 +35,10 @@
         .ai-digest-section {
             text-align: center;
             margin-bottom: 30px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
         }
         .ai-digest-btn {
             display: inline-block;
@@ -53,6 +57,26 @@
             box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
         }
         .ai-digest-btn:active {
+            transform: translateY(0);
+        }
+        /* 월간 다이제스트 버튼 */
+        .monthly-digest-btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(17, 153, 142, 0.3);
+        }
+        .monthly-digest-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+        .monthly-digest-btn:active {
             transform: translateY(0);
         }
         .rules-box {
@@ -332,7 +356,10 @@
         <!-- AI 다이제스트 버튼 -->
         <div class="ai-digest-section">
             <a href="#" id="aiDigestBtn" class="ai-digest-btn" target="_blank">
-                🤖 AI 다이제스트 보기
+                🤖 일간 다이제스트 보기
+            </a>
+            <a href="#" id="monthlyDigestBtn" class="monthly-digest-btn" target="_blank">
+                📊 월간 다이제스트 보기
             </a>
         </div>
 
@@ -428,17 +455,26 @@
         // AI 다이제스트 버튼 링크 설정
         document.addEventListener('DOMContentLoaded', function() {
             const aiDigestBtn = document.getElementById('aiDigestBtn');
+            const monthlyDigestBtn = document.getElementById('monthlyDigestBtn');
 
-            // 어제 날짜 계산
+            // 일간 다이제스트: 어제 날짜 계산
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
             const dateStr = yesterday.getFullYear() + '-' +
                           String(yesterday.getMonth() + 1).padStart(2, '0') + '-' +
                           String(yesterday.getDate()).padStart(2, '0');
 
+            // 월간 다이제스트: 이번 달 계산
+            const now = new Date();
+            const yearMonth = now.getFullYear() + '-' +
+                            String(now.getMonth() + 1).padStart(2, '0');
+
             // 웹앱 URL + 날짜 파라미터
-            const digestUrl = `${WEB_APP_URL}?date=${dateStr}`;
-            aiDigestBtn.href = digestUrl;
+            const dailyDigestUrl = `${WEB_APP_URL}?date=${dateStr}`;
+            const monthlyDigestUrl = `${WEB_APP_URL}?date=MONTHLY-${yearMonth}`;
+
+            aiDigestBtn.href = dailyDigestUrl;
+            monthlyDigestBtn.href = monthlyDigestUrl;
         });
 
         // ===== 유틸리티 함수 =====
