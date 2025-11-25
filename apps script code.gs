@@ -1102,13 +1102,14 @@ function 초기설정() {
     Logger.log('시트 이름: ' + CONFIG.LONG_OFF_SHEET);
   } else {
     Logger.log('✅ 장기오프신청 시트 발견: ' + CONFIG.LONG_OFF_SHEET);
-    
-    // 승인 열(G열) 확인 및 추가
+
+    // 승인 열(F열) 확인 및 추가
     const lastCol = longOffSheet.getLastColumn();
-    if (lastCol < 7) {
-      Logger.log('⚠️ 승인 열(G열)이 없습니다. 수동으로 추가해주세요.');
+    if (lastCol < 6) {
+      Logger.log('⚠️ 승인 열(F열)이 없습니다. 수동으로 추가해주세요.');
+      Logger.log('   현재 열: A(타임스탬프), B(이름), C(시작일), D(종료일), E(사유), F(승인) 필요');
     } else {
-      Logger.log('✅ 승인 열(G열) 확인 완료');
+      Logger.log('✅ 승인 열(F열) 확인 완료');
     }
   }
   
