@@ -3629,11 +3629,21 @@ function 파일내용수집(memberName, folderId, dateStr) {
 
     // 조원 폴더
     const memberFolder = DriveApp.getFolderById(folderId);
+    Logger.log(`  📁 조원 폴더: ${memberFolder.getName()}`);
+
+    // 🔍 디버깅: 이 폴더에 어떤 하위 폴더들이 있는지 확인
+    const allFolders = memberFolder.getFolders();
+    const folderNames = [];
+    while (allFolders.hasNext() && folderNames.length < 10) {
+      folderNames.push(allFolders.next().getName());
+    }
+    Logger.log(`  📂 하위 폴더들: ${folderNames.join(', ')}`);
 
     // 날짜 폴더 찾기 (yyyy-MM-dd 형식)
     const dateFolders = memberFolder.getFoldersByName(dateStr);
     if (!dateFolders.hasNext()) {
-      Logger.log(`  날짜 폴더 없음: ${dateStr}`);
+      Logger.log(`  ❌ 날짜 폴더 없음: ${dateStr}`);
+      Logger.log(`  💡 찾은 하위 폴더: ${folderNames.length}개`);
       return null;
     }
 
