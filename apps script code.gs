@@ -1068,14 +1068,32 @@ function 초기설정() {
 
   Logger.log('트리거 6 설정 완료: 매일 새벽 6시 주간집계 자동 생성 (실시간 반영)');
 
-  // 🆕 트리거 7: 매월 1일 오전 5시 월간 AI 다이제스트 자동 생성 (전월 데이터)
-  ScriptApp.newTrigger('월간AI다이제스트_자동생성')
+  // 🆕 트리거 7: 매월 1일 오전 5시 월간 데이터 수집 (전월)
+  ScriptApp.newTrigger('월간데이터수집_자동실행')
     .timeBased()
     .onMonthDay(1)
     .atHour(5)
     .create();
 
-  Logger.log('트리거 7 설정 완료: 매월 1일 오전 5시 전월 월간 다이제스트 자동 생성');
+  Logger.log('트리거 7 설정 완료: 매월 1일 오전 5시 전월 데이터 수집');
+
+  // 🆕 트리거 8: 매월 1일 오전 6시 월간 AI 분석 (전월)
+  ScriptApp.newTrigger('월간AI분석_자동실행')
+    .timeBased()
+    .onMonthDay(1)
+    .atHour(6)
+    .create();
+
+  Logger.log('트리거 8 설정 완료: 매월 1일 오전 6시 전월 AI 분석 및 다이제스트 생성');
+
+  // 🆕 트리거 9: 매월 1일 오전 7시 월간 원본 수집 (전월, 옵시디언용)
+  ScriptApp.newTrigger('월간원본수집_자동실행')
+    .timeBased()
+    .onMonthDay(1)
+    .atHour(7)
+    .create();
+
+  Logger.log('트리거 9 설정 완료: 매월 1일 오전 7시 전월 원본 파일 수집 (옵시디언용)');
 
   // 제출기록 시트
   let recordSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
@@ -4027,8 +4045,47 @@ function 월간AI다이제스트생성(yearMonth) {
 }
 
 /**
- * 월간 AI 다이제스트 자동 생성 (트리거용)
- * 파라미터 없이 호출 시 전월 데이터 분석
+ * 🆕 트리거용: 월간 데이터 수집 자동 실행 (전월)
+ */
+function 월간데이터수집_자동실행() {
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const yearMonth = Utilities.formatDate(lastMonth, 'Asia/Seoul', 'yyyy-MM');
+
+  Logger.log(`\n🤖 [자동 트리거] 전월 데이터 수집: ${yearMonth}`);
+
+  return 월간데이터수집(yearMonth);
+}
+
+/**
+ * 🆕 트리거용: 월간 AI 분석 자동 실행 (전월)
+ */
+function 월간AI분석_자동실행() {
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const yearMonth = Utilities.formatDate(lastMonth, 'Asia/Seoul', 'yyyy-MM');
+
+  Logger.log(`\n🤖 [자동 트리거] 전월 AI 분석: ${yearMonth}`);
+
+  return 월간AI분석실행(yearMonth);
+}
+
+/**
+ * 🆕 트리거용: 월간 원본 수집 자동 실행 (전월)
+ */
+function 월간원본수집_자동실행() {
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const yearMonth = Utilities.formatDate(lastMonth, 'Asia/Seoul', 'yyyy-MM');
+
+  Logger.log(`\n🤖 [자동 트리거] 전월 원본 수집: ${yearMonth}`);
+
+  return 월간원본수집(yearMonth);
+}
+
+/**
+ * 월간 AI 다이제스트 자동 생성 (트리거용 - DEPRECATED)
+ * ⚠️ 더 이상 사용하지 않습니다. 대신 위의 3개 함수를 개별 실행하세요.
  */
 function 월간AI다이제스트_자동생성() {
   // 전월 계산
@@ -4037,6 +4094,7 @@ function 월간AI다이제스트_자동생성() {
   const yearMonth = Utilities.formatDate(lastMonth, 'Asia/Seoul', 'yyyy-MM');
 
   Logger.log(`\n🤖 [자동 트리거] 전월 다이제스트 생성: ${yearMonth}`);
+  Logger.log(`⚠️ 이 함수는 deprecated 되었습니다. 개별 함수를 사용하세요.`);
 
   return 월간AI다이제스트생성(yearMonth);
 }
