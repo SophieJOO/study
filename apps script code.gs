@@ -181,8 +181,19 @@ function 출석체크_메인() {
               const files = 파일목록및링크생성(folder);
 
               if (files.length > 0) {
-                Logger.log(`    ✓ ${dateStr} - 출석 (${files.length}개 파일)`);
-                출석기록추가(memberName, dateStr, files, 'O');
+                // 🆕 off.md 파일 체크 (과도기 지원)
+                const hasOffFile = files.some(f =>
+                  f.name.toLowerCase() === 'off.md' ||
+                  f.name.toLowerCase() === 'off.txt'
+                );
+
+                if (hasOffFile) {
+                  Logger.log(`    🏖️ ${dateStr} - 오프 (off.md 파일 발견)`);
+                  출석기록추가(memberName, dateStr, files, 'OFF', 'off.md 파일');
+                } else {
+                  Logger.log(`    ✓ ${dateStr} - 출석 (${files.length}개 파일)`);
+                  출석기록추가(memberName, dateStr, files, 'O');
+                }
                 processedDates.add(dateStr);
                 processedCount++;
               } else {
