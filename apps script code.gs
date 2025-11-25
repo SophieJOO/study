@@ -1059,14 +1059,14 @@ function 초기설정() {
 
   Logger.log('트리거 5 설정 완료: 매일 새벽 4시 전날 다이제스트 자동 생성');
 
-  // 🆕 트리거 6: 매주 월요일 새벽 4시 주간집계 자동 생성
+  // 🆕 트리거 6: 매일 새벽 6시 주간집계 자동 생성 (진행 중인 주차도 실시간 반영)
   ScriptApp.newTrigger('이번달주간집계')
     .timeBased()
-    .onWeekDay(ScriptApp.WeekDay.MONDAY)
-    .atHour(4)
+    .atHour(6)
+    .everyDays(1)
     .create();
 
-  Logger.log('트리거 6 설정 완료: 매주 월요일 새벽 4시 주간집계 자동 생성');
+  Logger.log('트리거 6 설정 완료: 매일 새벽 6시 주간집계 자동 생성 (실시간 반영)');
 
   // 🆕 트리거 7: 매월 1일 오전 5시 월간 AI 다이제스트 자동 생성 (전월 데이터)
   ScriptApp.newTrigger('월간AI다이제스트_자동생성')
