@@ -3881,6 +3881,25 @@ function 파일내용수집(memberName, folderId, dateStr) {
       return null;
     }
 
+    // 🆕 먼저 off.md 파일이 있는지 확인 (오프한 사람은 다이제스트에서 제외)
+    const allFiles = dateFolder.getFiles();
+    let hasOffFile = false;
+
+    while (allFiles.hasNext()) {
+      const file = allFiles.next();
+      const fileName = file.getName().toLowerCase();
+
+      if (fileName === 'off.md' || fileName === 'off.txt') {
+        hasOffFile = true;
+        break;
+      }
+    }
+
+    if (hasOffFile) {
+      Logger.log(`  🏖️ 오프 (off.md 발견) - 다이제스트에서 제외`);
+      return null;
+    }
+
     let 전체내용 = '';
     const 파일목록 = [];
     const files = dateFolder.getFiles();
