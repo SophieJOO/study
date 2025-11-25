@@ -3899,100 +3899,6 @@ function 월간데이터누적(조원데이터, dateStr) {
 }
 
 /**
- * 1단계: 월간 데이터 수집 (DEPRECATED)
- * ⚠️ 더 이상 사용하지 않습니다.
- * 대신 일일AI다이제스트생성() 함수가 매일 자동으로 월간데이터누적()을 호출합니다.
- *
- * 각 조원의 한 달치 파일 내용을 수집하여 JSON으로 저장
- * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
- * @deprecated 일일 다이제스트 생성 시 자동 누적되므로 별도 호출 불필요
- */
-function 월간데이터수집(yearMonth) {
-  if (!yearMonth) {
-    yearMonth = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
-  }
-
-  Logger.log(`\n=== [1단계] ${yearMonth} 월간 데이터 수집 시작 ===\n`);
-
-  const 조원데이터 = {};
-
-  // 해당 월의 일수 계산
-  const [year, month] = yearMonth.split('-');
-  const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
-
-  Logger.log(`📅 분석 기간: ${yearMonth}-01 ~ ${yearMonth}-${String(lastDay).padStart(2, '0')}\n`);
-
-  // 각 조원별로 한 달치 데이터 수집
-  for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
-    const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
-
-    Logger.log(`👤 ${memberName} 데이터 수집 중...`);
-
-    let 한달내용 = '';
-    let 출석일수 = 0;
-    let 파일수 = 0;
-
-    for (let day = 1; day <= lastDay; day++) {
-      const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`;
-
-      for (const folderId of folderIds) {
-        const content = 파일내용수집(memberName, folderId, dateStr);
-
-        if (content && content.내용) {
-          한달내용 += `\n[${dateStr}]\n${content.내용}\n`;
-          출석일수++;
-          파일수 += content.파일목록.length;
-          break;
-        }
-      }
-    }
-
-    if (출석일수 === 0) {
-      Logger.log(`  ⚠️ ${yearMonth}에 제출한 내용이 없습니다.\n`);
-      continue;
-    }
-
-    Logger.log(`  📊 수집 완료: ${출석일수}일 출석, ${파일수}개 파일\n`);
-
-    조원데이터[memberName] = {
-      한달내용,
-      출석일수,
-      파일수
-    };
-  }
-
-  if (Object.keys(조원데이터).length === 0) {
-    Logger.log('\n❌ 수집할 데이터가 없습니다.');
-    return null;
-  }
-
-  // JSON 파일로 저장
-  const fileName = `monthly-data-${yearMonth}.json`;
-  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
-
-  // 기존 파일 삭제
-  const existingFiles = folder.getFilesByName(fileName);
-  while (existingFiles.hasNext()) {
-    existingFiles.next().setTrashed(true);
-  }
-
-  // 새 파일 생성
-  const jsonData = {
-    년월: yearMonth,
-    수집일시: new Date().toISOString(),
-    조원데이터
-  };
-
-  const file = folder.createFile(fileName, JSON.stringify(jsonData, null, 2), MimeType.PLAIN_TEXT);
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  Logger.log(`\n✅ ${Object.keys(조원데이터).length}명의 데이터 수집 완료`);
-  Logger.log(`📁 저장 위치: ${fileName}`);
-
-  return 조원데이터;
-}
-
-/**
  * 🆕 2단계: 월간 AI 분석 실행 (시간 초과 방지)
  * 저장된 데이터를 읽어서 AI 분석 후 HTML 생성
  * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
@@ -4102,23 +4008,6 @@ function 월간AI다이제스트생성(yearMonth) {
 }
 
 /**
- * 트리거용: 월간 데이터 수집 자동 실행 (DEPRECATED)
- * ⚠️ 더 이상 사용하지 않습니다.
- * 일일 다이제스트 생성 시 자동으로 누적되므로 별도 호출 불필요
- * @deprecated
- */
-function 월간데이터수집_자동실행() {
-  const now = new Date();
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const yearMonth = Utilities.formatDate(lastMonth, 'Asia/Seoul', 'yyyy-MM');
-
-  Logger.log(`\n🤖 [자동 트리거 - DEPRECATED] 전월 데이터 수집: ${yearMonth}`);
-  Logger.log(`⚠️ 이 함수는 deprecated 되었습니다. 일일 다이제스트 생성 시 자동 누적됩니다.`);
-
-  return 월간데이터수집(yearMonth);
-}
-
-/**
  * 🆕 트리거용: 월간 AI 분석 자동 실행 (전월)
  */
 function 월간AI분석_자동실행() {
@@ -4142,22 +4031,6 @@ function 월간원본수집_자동실행() {
   Logger.log(`\n🤖 [자동 트리거] 전월 원본 수집: ${yearMonth}`);
 
   return 월간원본수집(yearMonth);
-}
-
-/**
- * 월간 AI 다이제스트 자동 생성 (트리거용 - DEPRECATED)
- * ⚠️ 더 이상 사용하지 않습니다. 대신 위의 3개 함수를 개별 실행하세요.
- */
-function 월간AI다이제스트_자동생성() {
-  // 전월 계산
-  const now = new Date();
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const yearMonth = Utilities.formatDate(lastMonth, 'Asia/Seoul', 'yyyy-MM');
-
-  Logger.log(`\n🤖 [자동 트리거] 전월 다이제스트 생성: ${yearMonth}`);
-  Logger.log(`⚠️ 이 함수는 deprecated 되었습니다. 개별 함수를 사용하세요.`);
-
-  return 월간AI다이제스트생성(yearMonth);
 }
 
 /**
