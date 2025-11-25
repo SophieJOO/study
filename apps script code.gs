@@ -3828,27 +3828,18 @@ function 일일AI다이제스트생성(dateStr) {
 }
 
 /**
- * 🆕 월간 AI 다이제스트 생성
- * - 한 달 동안의 학습 내용을 AI로 분석하여 조원별 요약 생성
- * @param {string} yearMonth - 년월 (yyyy-MM 형식, 예: 2025-11)
+ * 🆕 1단계: 월간 데이터 수집 (시간 초과 방지)
+ * 각 조원의 한 달치 파일 내용을 수집하여 JSON으로 저장
+ * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
  */
-function 월간AI다이제스트생성(yearMonth) {
+function 월간데이터수집(yearMonth) {
   if (!yearMonth) {
-    // 기본값: 이번 달
     yearMonth = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
   }
 
-  Logger.log(`\n=== ${yearMonth} 월간 다이제스트 생성 시작 ===\n`);
+  Logger.log(`\n=== [1단계] ${yearMonth} 월간 데이터 수집 시작 ===\n`);
 
-  // Gemini API 키 확인
-  const GEMINI_API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  if (!GEMINI_API_KEY) {
-    Logger.log('❌ Gemini API 키가 설정되지 않았습니다.');
-    Logger.log('스크립트 속성에 GEMINI_API_KEY를 설정하세요.');
-    return null;
-  }
-
-  const 조원분석결과 = [];
+  const 조원데이터 = {};
 
   // 해당 월의 일수 계산
   const [year, month] = yearMonth.split('-');
@@ -3856,13 +3847,12 @@ function 월간AI다이제스트생성(yearMonth) {
 
   Logger.log(`📅 분석 기간: ${yearMonth}-01 ~ ${yearMonth}-${String(lastDay).padStart(2, '0')}\n`);
 
-  // 각 조원별로 한 달치 데이터 수집 및 분석
+  // 각 조원별로 한 달치 데이터 수집
   for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
     const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
 
-    Logger.log(`👤 ${memberName} 분석 중...`);
+    Logger.log(`👤 ${memberName} 데이터 수집 중...`);
 
-    // 한 달치 데이터 수집
     let 한달내용 = '';
     let 출석일수 = 0;
     let 파일수 = 0;
@@ -3877,7 +3867,7 @@ function 월간AI다이제스트생성(yearMonth) {
           한달내용 += `\n[${dateStr}]\n${content.내용}\n`;
           출석일수++;
           파일수 += content.파일목록.length;
-          break; // 첫 번째 폴더에서 찾으면 중단
+          break;
         }
       }
     }
@@ -3887,18 +3877,96 @@ function 월간AI다이제스트생성(yearMonth) {
       continue;
     }
 
-    Logger.log(`  📊 수집 완료: ${출석일수}일 출석, ${파일수}개 파일`);
+    Logger.log(`  📊 수집 완료: ${출석일수}일 출석, ${파일수}개 파일\n`);
 
-    // AI 분석 요청
-    Logger.log(`  🤖 AI 분석 중...`);
+    조원데이터[memberName] = {
+      한달내용,
+      출석일수,
+      파일수
+    };
+  }
 
-    const 분석결과 = AI월간분석(memberName, 한달내용, 출석일수, 파일수, GEMINI_API_KEY);
+  if (Object.keys(조원데이터).length === 0) {
+    Logger.log('\n❌ 수집할 데이터가 없습니다.');
+    return null;
+  }
+
+  // JSON 파일로 저장
+  const fileName = `monthly-data-${yearMonth}.json`;
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+  // 기존 파일 삭제
+  const existingFiles = folder.getFilesByName(fileName);
+  while (existingFiles.hasNext()) {
+    existingFiles.next().setTrashed(true);
+  }
+
+  // 새 파일 생성
+  const jsonData = {
+    년월: yearMonth,
+    수집일시: new Date().toISOString(),
+    조원데이터
+  };
+
+  const file = folder.createFile(fileName, JSON.stringify(jsonData, null, 2), MimeType.PLAIN_TEXT);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  Logger.log(`\n✅ ${Object.keys(조원데이터).length}명의 데이터 수집 완료`);
+  Logger.log(`📁 저장 위치: ${fileName}`);
+
+  return 조원데이터;
+}
+
+/**
+ * 🆕 2단계: 월간 AI 분석 실행 (시간 초과 방지)
+ * 저장된 데이터를 읽어서 AI 분석 후 HTML 생성
+ * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
+ */
+function 월간AI분석실행(yearMonth) {
+  if (!yearMonth) {
+    yearMonth = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
+  }
+
+  Logger.log(`\n=== [2단계] ${yearMonth} 월간 AI 분석 시작 ===\n`);
+
+  // Gemini API 키 확인
+  const GEMINI_API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!GEMINI_API_KEY) {
+    Logger.log('❌ Gemini API 키가 설정되지 않았습니다.');
+    Logger.log('스크립트 속성에 GEMINI_API_KEY를 설정하세요.');
+    return null;
+  }
+
+  // 저장된 데이터 파일 읽기
+  const fileName = `monthly-data-${yearMonth}.json`;
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+  const files = folder.getFilesByName(fileName);
+  if (!files.hasNext()) {
+    Logger.log(`❌ 수집된 데이터 파일이 없습니다: ${fileName}`);
+    Logger.log('먼저 월간데이터수집() 함수를 실행해주세요.');
+    return null;
+  }
+
+  const file = files.next();
+  const jsonData = JSON.parse(file.getBlob().getDataAsString('UTF-8'));
+  const 조원데이터 = jsonData.조원데이터;
+
+  Logger.log(`📁 데이터 파일 로드 완료: ${Object.keys(조원데이터).length}명\n`);
+
+  const 조원분석결과 = [];
+
+  // 각 조원별 AI 분석
+  for (const [memberName, data] of Object.entries(조원데이터)) {
+    Logger.log(`👤 ${memberName} AI 분석 중...`);
+
+    const 분석결과 = AI월간분석(memberName, data.한달내용, data.출석일수, data.파일수, GEMINI_API_KEY);
 
     if (분석결과) {
       조원분석결과.push({
         이름: memberName,
-        출석일수: 출석일수,
-        파일수: 파일수,
+        출석일수: data.출석일수,
+        파일수: data.파일수,
         분석내용: 분석결과
       });
       Logger.log(`  ✅ 분석 완료\n`);
@@ -3911,16 +3979,51 @@ function 월간AI다이제스트생성(yearMonth) {
   }
 
   if (조원분석결과.length === 0) {
-    Logger.log('\n❌ 분석할 데이터가 없습니다.');
+    Logger.log('\n❌ 분석 결과가 없습니다.');
     return null;
   }
 
-  Logger.log(`\n✅ ${조원분석결과.length}명의 월간 분석 완료`);
+  Logger.log(`\n✅ ${조원분석결과.length}명의 AI 분석 완료`);
 
   // 월간 다이제스트 저장
   월간다이제스트저장(조원분석결과, yearMonth);
 
   return 조원분석결과;
+}
+
+/**
+ * 월간 AI 다이제스트 생성 (전체 프로세스)
+ * 1단계 + 2단계를 순차 실행하는 래퍼 함수
+ * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
+ */
+function 월간AI다이제스트생성(yearMonth) {
+  if (!yearMonth) {
+    yearMonth = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
+  }
+
+  Logger.log(`\n${'='.repeat(60)}`);
+  Logger.log(`📊 ${yearMonth} 월간 다이제스트 전체 생성 시작`);
+  Logger.log('='.repeat(60));
+
+  // 1단계: 데이터 수집
+  const 조원데이터 = 월간데이터수집(yearMonth);
+  if (!조원데이터) {
+    Logger.log('\n❌ 1단계 실패: 데이터 수집 불가');
+    return null;
+  }
+
+  // 2단계: AI 분석
+  const 분석결과 = 월간AI분석실행(yearMonth);
+  if (!분석결과) {
+    Logger.log('\n❌ 2단계 실패: AI 분석 불가');
+    return null;
+  }
+
+  Logger.log(`\n${'='.repeat(60)}`);
+  Logger.log(`✅ 월간 다이제스트 전체 생성 완료`);
+  Logger.log('='.repeat(60));
+
+  return 분석결과;
 }
 
 /**
