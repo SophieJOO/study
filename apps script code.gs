@@ -3926,7 +3926,8 @@ function 월간AI분석실행(yearMonth) {
   const files = folder.getFilesByName(fileName);
   if (!files.hasNext()) {
     Logger.log(`❌ 수집된 데이터 파일이 없습니다: ${fileName}`);
-    Logger.log('먼저 월간데이터수집() 함수를 실행해주세요.');
+    Logger.log('일일 다이제스트가 매일 실행되어 자동으로 누적되어야 합니다.');
+    Logger.log('해당 월의 데이터가 아직 누적되지 않았거나 파일이 삭제되었을 수 있습니다.');
     return null;
   }
 
@@ -3974,8 +3975,8 @@ function 월간AI분석실행(yearMonth) {
 }
 
 /**
- * 월간 AI 다이제스트 생성 (전체 프로세스)
- * 1단계 + 2단계를 순차 실행하는 래퍼 함수
+ * 월간 AI 다이제스트 생성
+ * 일일 누적된 데이터를 기반으로 AI 분석 실행
  * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
  */
 function 월간AI다이제스트생성(yearMonth) {
@@ -3984,25 +3985,18 @@ function 월간AI다이제스트생성(yearMonth) {
   }
 
   Logger.log(`\n${'='.repeat(60)}`);
-  Logger.log(`📊 ${yearMonth} 월간 다이제스트 전체 생성 시작`);
+  Logger.log(`📊 ${yearMonth} 월간 다이제스트 생성 시작`);
   Logger.log('='.repeat(60));
 
-  // 1단계: 데이터 수집
-  const 조원데이터 = 월간데이터수집(yearMonth);
-  if (!조원데이터) {
-    Logger.log('\n❌ 1단계 실패: 데이터 수집 불가');
-    return null;
-  }
-
-  // 2단계: AI 분석
+  // 일일 누적된 데이터로 AI 분석 실행
   const 분석결과 = 월간AI분석실행(yearMonth);
   if (!분석결과) {
-    Logger.log('\n❌ 2단계 실패: AI 분석 불가');
+    Logger.log('\n❌ AI 분석 실패');
     return null;
   }
 
   Logger.log(`\n${'='.repeat(60)}`);
-  Logger.log(`✅ 월간 다이제스트 전체 생성 완료`);
+  Logger.log(`✅ 월간 다이제스트 생성 완료`);
   Logger.log('='.repeat(60));
 
   return 분석결과;
