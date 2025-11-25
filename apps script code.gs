@@ -1068,6 +1068,15 @@ function 초기설정() {
 
   Logger.log('트리거 6 설정 완료: 매주 월요일 새벽 4시 주간집계 자동 생성');
 
+  // 🆕 트리거 7: 매월 1일 오전 5시 월간 AI 다이제스트 자동 생성 (전월 데이터)
+  ScriptApp.newTrigger('월간AI다이제스트_자동생성')
+    .timeBased()
+    .onMonthDay(1)
+    .atHour(5)
+    .create();
+
+  Logger.log('트리거 7 설정 완료: 매월 1일 오전 5시 전월 월간 다이제스트 자동 생성');
+
   // 제출기록 시트
   let recordSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!recordSheet) {
@@ -3912,6 +3921,21 @@ function 월간AI다이제스트생성(yearMonth) {
   월간다이제스트저장(조원분석결과, yearMonth);
 
   return 조원분석결과;
+}
+
+/**
+ * 월간 AI 다이제스트 자동 생성 (트리거용)
+ * 파라미터 없이 호출 시 전월 데이터 분석
+ */
+function 월간AI다이제스트_자동생성() {
+  // 전월 계산
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const yearMonth = Utilities.formatDate(lastMonth, 'Asia/Seoul', 'yyyy-MM');
+
+  Logger.log(`\n🤖 [자동 트리거] 전월 다이제스트 생성: ${yearMonth}`);
+
+  return 월간AI다이제스트생성(yearMonth);
 }
 
 /**
