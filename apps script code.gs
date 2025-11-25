@@ -1068,32 +1068,23 @@ function 초기설정() {
 
   Logger.log('트리거 6 설정 완료: 매일 새벽 6시 주간집계 자동 생성 (실시간 반영)');
 
-  // 🆕 트리거 7: 매월 1일 오전 5시 월간 데이터 수집 (전월)
-  ScriptApp.newTrigger('월간데이터수집_자동실행')
+  // 🆕 트리거 7: 매월 1일 오전 5시 월간 AI 분석 (전월, 누적된 데이터 사용)
+  ScriptApp.newTrigger('월간AI분석_자동실행')
     .timeBased()
     .onMonthDay(1)
     .atHour(5)
     .create();
 
-  Logger.log('트리거 7 설정 완료: 매월 1일 오전 5시 전월 데이터 수집');
+  Logger.log('트리거 7 설정 완료: 매월 1일 오전 5시 전월 AI 분석 및 다이제스트 생성 (누적 데이터)');
 
-  // 🆕 트리거 8: 매월 1일 오전 6시 월간 AI 분석 (전월)
-  ScriptApp.newTrigger('월간AI분석_자동실행')
+  // 🆕 트리거 8: 매월 1일 오전 6시 월간 원본 수집 (전월, 옵시디언용)
+  ScriptApp.newTrigger('월간원본수집_자동실행')
     .timeBased()
     .onMonthDay(1)
     .atHour(6)
     .create();
 
-  Logger.log('트리거 8 설정 완료: 매월 1일 오전 6시 전월 AI 분석 및 다이제스트 생성');
-
-  // 🆕 트리거 9: 매월 1일 오전 7시 월간 원본 수집 (전월, 옵시디언용)
-  ScriptApp.newTrigger('월간원본수집_자동실행')
-    .timeBased()
-    .onMonthDay(1)
-    .atHour(7)
-    .create();
-
-  Logger.log('트리거 9 설정 완료: 매월 1일 오전 7시 전월 원본 파일 수집 (옵시디언용)');
+  Logger.log('트리거 8 설정 완료: 매월 1일 오전 6시 전월 원본 파일 수집 (옵시디언용)');
 
   // 제출기록 시트
   let recordSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
@@ -3842,13 +3833,79 @@ function 일일AI다이제스트생성(dateStr) {
 
   다이제스트저장(통합다이제스트, 조원데이터, dateStr);
 
+  // 🆕 월간 누적 데이터 저장 (매일 자동 누적)
+  월간데이터누적(조원데이터, dateStr);
+
   return 통합다이제스트;
 }
 
 /**
- * 🆕 1단계: 월간 데이터 수집 (시간 초과 방지)
+ * 🆕 월간 데이터 누적 저장
+ * 일간 다이제스트 생성 시 호출되어 월간 데이터 JSON에 누적 저장
+ * @param {Array} 조원데이터 - 일간 조원 데이터 [{이름, 내용, 파일목록}, ...]
+ * @param {string} dateStr - 날짜 (yyyy-MM-dd)
+ */
+function 월간데이터누적(조원데이터, dateStr) {
+  const yearMonth = dateStr.substring(0, 7); // 'yyyy-MM'
+  const fileName = `monthly-data-${yearMonth}.json`;
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+  try {
+    // 기존 JSON 파일 읽기 (없으면 새로 생성)
+    let jsonData = {
+      년월: yearMonth,
+      수집일시: new Date().toISOString(),
+      조원데이터: {}
+    };
+
+    const files = folder.getFilesByName(fileName);
+    if (files.hasNext()) {
+      const file = files.next();
+      jsonData = JSON.parse(file.getBlob().getDataAsString('UTF-8'));
+      file.setTrashed(true); // 기존 파일 삭제
+    }
+
+    // 해당 날짜의 조원 데이터 추가/업데이트
+    조원데이터.forEach(data => {
+      const memberName = data.이름;
+
+      // 조원 데이터가 없으면 초기화
+      if (!jsonData.조원데이터[memberName]) {
+        jsonData.조원데이터[memberName] = {
+          한달내용: '',
+          출석일수: 0,
+          파일수: 0
+        };
+      }
+
+      // 데이터 누적
+      jsonData.조원데이터[memberName].한달내용 += `\n[${dateStr}]\n${data.내용}\n`;
+      jsonData.조원데이터[memberName].출석일수++;
+      jsonData.조원데이터[memberName].파일수 += data.파일목록.length;
+    });
+
+    // 갱신 시간 업데이트
+    jsonData.수집일시 = new Date().toISOString();
+
+    // JSON 파일로 저장
+    const newFile = folder.createFile(fileName, JSON.stringify(jsonData, null, 2), MimeType.PLAIN_TEXT);
+    newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    Logger.log(`✅ 월간 누적 데이터 저장: ${fileName} (${Object.keys(jsonData.조원데이터).length}명)`);
+
+  } catch (error) {
+    Logger.log(`⚠️ 월간 누적 저장 실패: ${error.message}`);
+  }
+}
+
+/**
+ * 1단계: 월간 데이터 수집 (DEPRECATED)
+ * ⚠️ 더 이상 사용하지 않습니다.
+ * 대신 일일AI다이제스트생성() 함수가 매일 자동으로 월간데이터누적()을 호출합니다.
+ *
  * 각 조원의 한 달치 파일 내용을 수집하여 JSON으로 저장
  * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
+ * @deprecated 일일 다이제스트 생성 시 자동 누적되므로 별도 호출 불필요
  */
 function 월간데이터수집(yearMonth) {
   if (!yearMonth) {
@@ -4045,14 +4102,18 @@ function 월간AI다이제스트생성(yearMonth) {
 }
 
 /**
- * 🆕 트리거용: 월간 데이터 수집 자동 실행 (전월)
+ * 트리거용: 월간 데이터 수집 자동 실행 (DEPRECATED)
+ * ⚠️ 더 이상 사용하지 않습니다.
+ * 일일 다이제스트 생성 시 자동으로 누적되므로 별도 호출 불필요
+ * @deprecated
  */
 function 월간데이터수집_자동실행() {
   const now = new Date();
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const yearMonth = Utilities.formatDate(lastMonth, 'Asia/Seoul', 'yyyy-MM');
 
-  Logger.log(`\n🤖 [자동 트리거] 전월 데이터 수집: ${yearMonth}`);
+  Logger.log(`\n🤖 [자동 트리거 - DEPRECATED] 전월 데이터 수집: ${yearMonth}`);
+  Logger.log(`⚠️ 이 함수는 deprecated 되었습니다. 일일 다이제스트 생성 시 자동 누적됩니다.`);
 
   return 월간데이터수집(yearMonth);
 }
