@@ -39,6 +39,7 @@ const CONFIG = {
   LONG_OFF_SHEET: '장기오프신청',
   ADMIN_SHEET: '관리자수정',  // 🆕 추가
   MONTHLY_SUMMARY_SHEET: '월별결산',  // 🆕 월별결산 시트
+  DIGEST_SHEET: '다이제스트',  // 🆕 다이제스트 시트 (드라이브 대신 시트 사용)
   
   // JSON 파일 출력 폴더 ID
   JSON_FOLDER_ID: '1el9NDYDGfWlUEkBzI1GT_1TULLoBnSsQ',
@@ -180,8 +181,19 @@ function 출석체크_메인() {
               const files = 파일목록및링크생성(folder);
 
               if (files.length > 0) {
-                Logger.log(`    ✓ ${dateStr} - 출석 (${files.length}개 파일)`);
-                출석기록추가(memberName, dateStr, files, 'O');
+                // 🆕 off.md 파일 체크 (과도기 지원)
+                const hasOffFile = files.some(f =>
+                  f.name.toLowerCase() === 'off.md' ||
+                  f.name.toLowerCase() === 'off.txt'
+                );
+
+                if (hasOffFile) {
+                  Logger.log(`    🏖️ ${dateStr} - 오프 (off.md 파일 발견)`);
+                  출석기록추가(memberName, dateStr, files, 'OFF', 'off.md 파일');
+                } else {
+                  Logger.log(`    ✓ ${dateStr} - 출석 (${files.length}개 파일)`);
+                  출석기록추가(memberName, dateStr, files, 'O');
+                }
                 processedDates.add(dateStr);
                 processedCount++;
               } else {
@@ -211,8 +223,200 @@ function 출석체크_메인() {
 
   // JSON 파일 생성
   JSON파일생성();
-  
+
   Logger.log('=== 출석 체크 완료 ===');
+}
+
+/**
+ * 🆕 과거 출석 기록 재검사 (off.md 파일 누락 수정용)
+ * - 최근 N일간의 출석 기록을 다시 확인
+ * - off.md 파일이 있는데 '출석'으로 체크된 경우 '오프'로 수정
+ * @param {number} days - 확인할 일수 (기본: 7일)
+ */
+function 출석기록재검사(days = 7) {
+  Logger.log(`=== 최근 ${days}일 출석 기록 재검사 시작 ===\n`);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+  if (!sheet) {
+    Logger.log('❌ 제출기록 시트가 없습니다.');
+    return;
+  }
+
+  // 최근 N일의 날짜 생성
+  const targetDates = [];
+  const now = new Date();
+
+  for (let i = 0; i < days; i++) {
+    const checkDate = new Date(now);
+    checkDate.setDate(checkDate.getDate() - i);
+    const dateStr = Utilities.formatDate(checkDate, 'Asia/Seoul', 'yyyy-MM-dd');
+    targetDates.push(dateStr);
+  }
+
+  Logger.log(`📅 검사 대상 날짜: ${targetDates.join(', ')}\n`);
+
+  let totalChecked = 0;
+  let totalFixed = 0;
+
+  // 각 조원별로 검사
+  for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
+    const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
+
+    Logger.log(`👤 ${memberName} 검사 중...`);
+    let memberFixed = 0;
+
+    // 각 날짜 검사
+    for (const dateStr of targetDates) {
+      // 해당 날짜의 현재 출석 상태 확인
+      const data = sheet.getDataRange().getValues();
+      let currentStatus = null;
+
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][1] === memberName && data[i][2] === dateStr) {
+          currentStatus = data[i][6]; // 출석상태 열
+          break;
+        }
+      }
+
+      // 출석('O')으로 되어 있는 경우만 재검사
+      if (currentStatus !== 'O') {
+        continue;
+      }
+
+      totalChecked++;
+
+      // 폴더에서 off.md 파일 찾기
+      let hasOffFile = false;
+
+      for (const folderId of folderIds) {
+        try {
+          const memberFolder = DriveApp.getFolderById(folderId);
+
+          // 여러 날짜 형식 시도
+          const dateFormats = [];
+          const parts = dateStr.split('-');
+          if (parts.length === 3) {
+            const year = parts[0];
+            const month = parts[1];
+            const day = parts[2];
+
+            dateFormats.push(
+              `${year}-${month}-${day}`,
+              `${year}${month}${day}`,
+              `${year}.${month}.${day}`,
+              `${year}년 ${month}월 ${day}일`
+            );
+          }
+
+          // 날짜 폴더 찾기
+          let dateFolder = null;
+          for (const format of dateFormats) {
+            const folders = memberFolder.getFoldersByName(format);
+            if (folders.hasNext()) {
+              dateFolder = folders.next();
+              break;
+            }
+          }
+
+          if (!dateFolder) {
+            continue;
+          }
+
+          // 폴더 내 파일 확인
+          const files = dateFolder.getFiles();
+          while (files.hasNext()) {
+            const file = files.next();
+            const fileName = file.getName().toLowerCase();
+
+            if (fileName === 'off.md' || fileName === 'off.txt') {
+              hasOffFile = true;
+              break;
+            }
+          }
+
+          if (hasOffFile) {
+            break; // 찾았으면 다른 폴더 검사 안함
+          }
+
+        } catch (e) {
+          // 폴더 접근 오류는 무시
+        }
+      }
+
+      // off.md 파일이 있으면 오프로 수정
+      if (hasOffFile) {
+        Logger.log(`  🔧 ${dateStr} - 출석 → 오프로 수정 (off.md 발견)`);
+
+        // 기록 업데이트
+        const files = 파일목록및링크생성_날짜폴더찾기(memberName, folderIds, dateStr);
+        if (files) {
+          출석기록추가(memberName, dateStr, files, 'OFF', 'off.md 파일 (재검사로 수정됨)');
+          memberFixed++;
+          totalFixed++;
+        }
+      }
+    }
+
+    if (memberFixed > 0) {
+      Logger.log(`  ✅ ${memberFixed}개 기록 수정됨\n`);
+    } else {
+      Logger.log(`  ✓ 수정 필요 없음\n`);
+    }
+  }
+
+  Logger.log(`\n=== 재검사 완료 ===`);
+  Logger.log(`📊 총 ${totalChecked}개 기록 검사`);
+  Logger.log(`🔧 총 ${totalFixed}개 기록 수정`);
+
+  // JSON 파일 재생성
+  if (totalFixed > 0) {
+    Logger.log('\n📁 JSON 파일 재생성 중...');
+    JSON파일생성();
+    Logger.log('✅ JSON 파일 업데이트 완료');
+  }
+}
+
+/**
+ * 날짜 폴더를 찾아서 파일 목록 반환 (재검사용)
+ */
+function 파일목록및링크생성_날짜폴더찾기(memberName, folderIds, dateStr) {
+  for (const folderId of folderIds) {
+    try {
+      const memberFolder = DriveApp.getFolderById(folderId);
+
+      // 여러 날짜 형식 시도
+      const dateFormats = [];
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const year = parts[0];
+        const month = parts[1];
+        const day = parts[2];
+
+        dateFormats.push(
+          `${year}-${month}-${day}`,
+          `${year}${month}${day}`,
+          `${year}.${month}.${day}`,
+          `${year}년 ${month}월 ${day}일`
+        );
+      }
+
+      // 날짜 폴더 찾기
+      for (const format of dateFormats) {
+        const folders = memberFolder.getFoldersByName(format);
+        if (folders.hasNext()) {
+          const dateFolder = folders.next();
+          return 파일목록및링크생성(dateFolder);
+        }
+      }
+
+    } catch (e) {
+      // 폴더 접근 오류는 무시
+    }
+  }
+
+  return null;
 }
 
 function 마감시간체크() {
@@ -843,9 +1047,27 @@ function 초기설정() {
     .onMonthDay(1)
     .atHour(1)
     .create();
-  
+
   Logger.log('트리거 4 설정 완료: 매월 1일 오전 1시 전월 결산 생성');
-  
+
+  // 🆕 트리거 5: 매일 새벽 4시 AI 다이제스트 자동 생성 (전날 다이제스트)
+  ScriptApp.newTrigger('일일AI다이제스트생성')
+    .timeBased()
+    .atHour(4)
+    .everyDays(1)
+    .create();
+
+  Logger.log('트리거 5 설정 완료: 매일 새벽 4시 전날 다이제스트 자동 생성');
+
+  // 🆕 트리거 6: 매주 월요일 새벽 4시 주간집계 자동 생성
+  ScriptApp.newTrigger('이번달주간집계')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .atHour(4)
+    .create();
+
+  Logger.log('트리거 6 설정 완료: 매주 월요일 새벽 4시 주간집계 자동 생성');
+
   // 제출기록 시트
   let recordSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!recordSheet) {
@@ -1968,23 +2190,44 @@ function 다이제스트HTML서빙(dateStr) {
  */
 function 다이제스트HTML가져오기(dateStr) {
   try {
-    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
-    const htmlFileName = `digest-${dateStr}.html`;
+    Logger.log(`📖 다이제스트 읽기 시작: ${dateStr}`);
 
-    const files = folder.getFilesByName(htmlFileName);
+    // 1. 스프레드시트 시트에서 파일 ID 찾기
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
 
-    if (!files.hasNext()) {
-      Logger.log(`HTML 파일 없음: ${htmlFileName}`);
+    if (!sheet) {
+      Logger.log('⚠️ 다이제스트 시트가 없습니다.');
       return null;
     }
 
-    const file = files.next();
+    // 모든 데이터 가져오기
+    const data = sheet.getDataRange().getValues();
+
+    // 날짜로 검색 (헤더 제외)
+    let fileId = null;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === dateStr) {
+        fileId = data[i][1];  // 파일ID 컬럼
+        Logger.log(`✅ 다이제스트 파일 ID 찾음: ${fileId}`);
+        break;
+      }
+    }
+
+    if (!fileId) {
+      Logger.log(`❌ ${dateStr} 다이제스트 없음`);
+      return null;
+    }
+
+    // 2. 드라이브에서 HTML 파일 읽기
+    const file = DriveApp.getFileById(fileId);
     const htmlContent = file.getBlob().getDataAsString('UTF-8');
 
+    Logger.log(`✅ HTML 파일 읽기 완료: ${htmlContent.length} 문자`);
     return htmlContent;
 
   } catch (error) {
-    Logger.log(`HTML 파일 읽기 실패: ${error.message}`);
+    Logger.log(`HTML 읽기 실패: ${error.message}`);
     throw error;
   }
 }
@@ -3576,6 +3819,416 @@ function 일일AI다이제스트생성(dateStr) {
 }
 
 /**
+ * 🆕 월간 AI 다이제스트 생성
+ * - 한 달 동안의 학습 내용을 AI로 분석하여 조원별 요약 생성
+ * @param {string} yearMonth - 년월 (yyyy-MM 형식, 예: 2025-11)
+ */
+function 월간AI다이제스트생성(yearMonth) {
+  if (!yearMonth) {
+    // 기본값: 이번 달
+    yearMonth = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
+  }
+
+  Logger.log(`\n=== ${yearMonth} 월간 다이제스트 생성 시작 ===\n`);
+
+  // Gemini API 키 확인
+  const GEMINI_API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!GEMINI_API_KEY) {
+    Logger.log('❌ Gemini API 키가 설정되지 않았습니다.');
+    Logger.log('스크립트 속성에 GEMINI_API_KEY를 설정하세요.');
+    return null;
+  }
+
+  const 조원분석결과 = [];
+
+  // 해당 월의 일수 계산
+  const [year, month] = yearMonth.split('-');
+  const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+
+  Logger.log(`📅 분석 기간: ${yearMonth}-01 ~ ${yearMonth}-${String(lastDay).padStart(2, '0')}\n`);
+
+  // 각 조원별로 한 달치 데이터 수집 및 분석
+  for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
+    const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
+
+    Logger.log(`👤 ${memberName} 분석 중...`);
+
+    // 한 달치 데이터 수집
+    let 한달내용 = '';
+    let 출석일수 = 0;
+    let 파일수 = 0;
+
+    for (let day = 1; day <= lastDay; day++) {
+      const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`;
+
+      for (const folderId of folderIds) {
+        const content = 파일내용수집(memberName, folderId, dateStr);
+
+        if (content && content.내용) {
+          한달내용 += `\n[${dateStr}]\n${content.내용}\n`;
+          출석일수++;
+          파일수 += content.파일목록.length;
+          break; // 첫 번째 폴더에서 찾으면 중단
+        }
+      }
+    }
+
+    if (출석일수 === 0) {
+      Logger.log(`  ⚠️ ${yearMonth}에 제출한 내용이 없습니다.\n`);
+      continue;
+    }
+
+    Logger.log(`  📊 수집 완료: ${출석일수}일 출석, ${파일수}개 파일`);
+
+    // AI 분석 요청
+    Logger.log(`  🤖 AI 분석 중...`);
+
+    const 분석결과 = AI월간분석(memberName, 한달내용, 출석일수, 파일수, GEMINI_API_KEY);
+
+    if (분석결과) {
+      조원분석결과.push({
+        이름: memberName,
+        출석일수: 출석일수,
+        파일수: 파일수,
+        분석내용: 분석결과
+      });
+      Logger.log(`  ✅ 분석 완료\n`);
+    } else {
+      Logger.log(`  ❌ AI 분석 실패\n`);
+    }
+
+    // API 호출 제한 고려하여 잠시 대기
+    Utilities.sleep(1000);
+  }
+
+  if (조원분석결과.length === 0) {
+    Logger.log('\n❌ 분석할 데이터가 없습니다.');
+    return null;
+  }
+
+  Logger.log(`\n✅ ${조원분석결과.length}명의 월간 분석 완료`);
+
+  // 월간 다이제스트 저장
+  월간다이제스트저장(조원분석결과, yearMonth);
+
+  return 조원분석결과;
+}
+
+/**
+ * AI로 조원의 한 달 학습 내용 분석
+ */
+function AI월간분석(memberName, 한달내용, 출석일수, 파일수, apiKey) {
+  try {
+    // 내용이 너무 길면 잘라내기 (Gemini API 토큰 제한 고려)
+    const maxLength = 30000; // 약 3만자로 제한
+    if (한달내용.length > maxLength) {
+      한달내용 = 한달내용.substring(0, maxLength) + '\n\n... (내용이 너무 길어 일부만 포함됨)';
+    }
+
+    const prompt = `당신은 한의학 스터디 그룹의 학습 분석 전문가입니다.
+
+아래는 "${memberName}" 조원이 한 달 동안 공부한 내용입니다.
+- 출석일수: ${출석일수}일
+- 제출 파일 수: ${파일수}개
+
+학습 내용:
+${한달내용}
+
+다음 형식으로 분석해주세요:
+
+## 📚 주요 학습 주제
+- 이 조원이 집중적으로 공부한 핵심 주제 3-5개를 나열해주세요
+
+## 📈 학습 패턴 분석
+- 학습 빈도, 깊이, 변화 추이 등을 분석해주세요
+
+## 💡 핵심 내용 요약
+- 가장 중요한 학습 내용을 3-4문장으로 요약해주세요
+
+## 🌟 특징 및 강점
+- 이 조원만의 학습 특징이나 강점을 2-3가지 언급해주세요
+
+분석은 간결하고 명확하게 작성해주세요.`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+
+    const payload = {
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }]
+    };
+
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+
+    const response = UrlFetchApp.fetch(url, options);
+    const result = JSON.parse(response.getContentText());
+
+    if (result.candidates && result.candidates[0] && result.candidates[0].content) {
+      return result.candidates[0].content.parts[0].text;
+    } else {
+      Logger.log(`  AI 응답 오류: ${JSON.stringify(result)}`);
+      return null;
+    }
+
+  } catch (e) {
+    Logger.log(`  AI 분석 오류: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * 월간 다이제스트 저장 (드라이브 + 시트)
+ */
+function 월간다이제스트저장(조원분석결과, yearMonth) {
+  Logger.log(`\n📝 월간 다이제스트 저장 시작: ${yearMonth}`);
+
+  // HTML 생성
+  let htmlContent = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 ${yearMonth} 월간 스터디 다이제스트</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+            line-height: 1.8;
+            color: #333;
+            background: #f8f9fa;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 50px;
+            padding-bottom: 30px;
+            border-bottom: 4px solid #4CAF50;
+        }
+        .header h1 {
+            font-size: 32px;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        .meta {
+            color: #7f8c8d;
+            font-size: 16px;
+        }
+        .member-analysis {
+            margin-bottom: 60px;
+            padding: 35px;
+            background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+            border-radius: 10px;
+            border-left: 5px solid #4CAF50;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .member-analysis h2 {
+            font-size: 26px;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        .member-analysis h2::before {
+            content: "👤";
+            margin-right: 12px;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 25px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+        .stat-item {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .stat-label {
+            font-size: 13px;
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+        .analysis-content {
+            color: #555;
+            font-size: 15px;
+        }
+        .analysis-content h2 {
+            font-size: 20px;
+            color: #34495e;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 8px;
+        }
+        .analysis-content h2::before {
+            content: "";
+        }
+        .analysis-content ul {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+        .analysis-content li {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+        .pdf-button {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 14px 35px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 17px;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            box-shadow: 0 3px 10px rgba(76, 175, 80, 0.3);
+            transition: all 0.3s ease;
+        }
+        .pdf-button:hover {
+            background: #45a049;
+            box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+            transform: translateY(-2px);
+        }
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+            .pdf-button {
+                display: none;
+            }
+            .member-analysis {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 ${yearMonth} 월간 스터디 다이제스트</h1>
+            <div class="meta">
+                생성일시: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')} |
+                총 ${조원분석결과.length}명 분석
+            </div>
+            <button class="pdf-button" onclick="window.print()">
+                📄 PDF로 저장하기
+            </button>
+        </div>
+`;
+
+  조원분석결과.forEach((data) => {
+    htmlContent += `
+        <div class="member-analysis">
+            <h2>${data.이름}</h2>
+
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-number">${data.출석일수}일</div>
+                    <div class="stat-label">출석</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">${data.파일수}개</div>
+                    <div class="stat-label">파일</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">${Math.round(data.파일수 / data.출석일수 * 10) / 10}</div>
+                    <div class="stat-label">평균 파일/일</div>
+                </div>
+            </div>
+
+            <div class="analysis-content">
+                ${마크다운을HTML로(data.분석내용)}
+            </div>
+        </div>
+`;
+  });
+
+  htmlContent += `
+    </div>
+</body>
+</html>`;
+
+  // 드라이브에 저장
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+  const htmlFileName = `monthly-digest-${yearMonth}.html`;
+
+  const existingFiles = folder.getFilesByName(htmlFileName);
+  while (existingFiles.hasNext()) {
+    existingFiles.next().setTrashed(true);
+  }
+
+  const htmlFile = folder.createFile(htmlFileName, htmlContent, MimeType.HTML);
+  htmlFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  const fileId = htmlFile.getId();
+
+  Logger.log(`✅ 드라이브에 HTML 파일 저장: ${htmlFileName}`);
+  Logger.log(`  - 파일 ID: ${fileId}`);
+
+  // 시트에 파일 ID 저장
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
+
+  if (sheet) {
+    const timestamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+
+    // 기존 같은 월 데이터 삭제
+    const data = sheet.getDataRange().getValues();
+    for (let i = data.length - 1; i > 0; i--) {
+      if (data[i][0] === `MONTHLY-${yearMonth}`) {
+        sheet.deleteRow(i + 1);
+        Logger.log(`기존 ${yearMonth} 월간 다이제스트 삭제됨`);
+      }
+    }
+
+    // 새 데이터 추가
+    sheet.insertRowBefore(2);
+    sheet.getRange(2, 1, 1, 3).setValues([[
+      `MONTHLY-${yearMonth}`,
+      fileId,
+      timestamp
+    ]]);
+
+    Logger.log(`✅ 시트에 파일 ID 저장 완료`);
+  }
+
+  Logger.log(`\n📱 웹앱 URL로 확인:`);
+  Logger.log(`https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec?date=MONTHLY-${yearMonth}`);
+}
+
+/**
  * 파일 내용 수집
  * @param {string} memberName - 조원 이름
  * @param {string} folderId - 조원 폴더 ID
@@ -3589,16 +4242,73 @@ function 파일내용수집(memberName, folderId, dateStr) {
 
     // 조원 폴더
     const memberFolder = DriveApp.getFolderById(folderId);
+    Logger.log(`  📁 조원 폴더: ${memberFolder.getName()}`);
 
-    // 날짜 폴더 찾기 (yyyy-MM-dd 형식)
-    const dateFolders = memberFolder.getFoldersByName(dateStr);
-    if (!dateFolders.hasNext()) {
-      Logger.log(`  날짜 폴더 없음: ${dateStr}`);
+    // 🔍 디버깅: 이 폴더에 어떤 하위 폴더들이 있는지 확인
+    const allFolders = memberFolder.getFolders();
+    const folderNames = [];
+    while (allFolders.hasNext() && folderNames.length < 10) {
+      folderNames.push(allFolders.next().getName());
+    }
+    Logger.log(`  📂 하위 폴더들: ${folderNames.join(', ')}`);
+
+    // 여러 날짜 형식 시도 (what 조원은 yyyyMMdd 형식 사용)
+    const dateFormats = [];
+
+    // dateStr이 yyyy-MM-dd 형식이라고 가정 (예: 2025-11-24)
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parts[0];
+      const month = parts[1];
+      const day = parts[2];
+
+      // 다양한 날짜 형식 생성
+      dateFormats.push(
+        `${year}-${month}-${day}`,           // 2025-11-24
+        `${year}${month}${day}`,             // 20251124 (what 조원)
+        `${year}.${month}.${day}`,           // 2025.11.24
+        `${year}년 ${month}월 ${day}일`      // 2025년 11월 24일
+      );
+    }
+
+    Logger.log(`  🔍 시도할 날짜 형식: ${dateFormats.join(', ')}`);
+
+    // 각 형식을 순서대로 시도
+    let dateFolder = null;
+    for (const format of dateFormats) {
+      const folders = memberFolder.getFoldersByName(format);
+      if (folders.hasNext()) {
+        dateFolder = folders.next();
+        Logger.log(`  ✅ 폴더 발견: ${dateFolder.getName()} (형식: ${format})`);
+        break;
+      }
+    }
+
+    // 모든 형식을 시도했지만 찾지 못함
+    if (!dateFolder) {
+      Logger.log(`  ❌ 날짜 폴더 없음 (모든 형식 시도함)`);
+      Logger.log(`  💡 찾은 하위 폴더: ${folderNames.length}개`);
       return null;
     }
 
-    const dateFolder = dateFolders.next();
-    Logger.log(`  ✅ 폴더 발견: ${dateFolder.getName()}`);
+    // 🆕 먼저 off.md 파일이 있는지 확인 (오프한 사람은 다이제스트에서 제외)
+    const allFiles = dateFolder.getFiles();
+    let hasOffFile = false;
+
+    while (allFiles.hasNext()) {
+      const file = allFiles.next();
+      const fileName = file.getName().toLowerCase();
+
+      if (fileName === 'off.md' || fileName === 'off.txt') {
+        hasOffFile = true;
+        break;
+      }
+    }
+
+    if (hasOffFile) {
+      Logger.log(`  🏖️ 오프 (off.md 발견) - 다이제스트에서 제외`);
+      return null;
+    }
 
     let 전체내용 = '';
     const 파일목록 = [];
@@ -3714,84 +4424,60 @@ function 파일내용수집(memberName, folderId, dateStr) {
 }
 
 /**
- * 다이제스트 저장
+ * 🆕 다이제스트 시트 초기화
+ * - 스프레드시트에 "다이제스트" 시트 생성
+ * - 드라이브 HTML 파일 ID를 시트에 저장하여 관리
+ * - 배포 설정 "실행 계정: 나"로 권한 문제 해결
+ */
+function 다이제스트시트초기화() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 기존 시트 삭제
+  const existing = ss.getSheetByName(CONFIG.DIGEST_SHEET);
+  if (existing) {
+    ss.deleteSheet(existing);
+    Logger.log('기존 다이제스트 시트 삭제됨');
+  }
+
+  // 새 시트 생성
+  const sheet = ss.insertSheet(CONFIG.DIGEST_SHEET);
+
+  // 헤더 설정
+  const headers = ['날짜', 'JSON데이터', '생성시각'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  // 헤더 스타일
+  sheet.getRange(1, 1, 1, headers.length)
+    .setBackground('#4CAF50')
+    .setFontColor('#ffffff')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center');
+
+  // 열 너비 설정
+  sheet.setColumnWidth(1, 120);  // 날짜
+  sheet.setColumnWidth(2, 600);  // JSON데이터 (넓게)
+  sheet.setColumnWidth(3, 180);  // 생성시각
+
+  // 헤더 고정
+  sheet.setFrozenRows(1);
+
+  Logger.log('✅ 다이제스트 시트 초기화 완료');
+  Logger.log('💡 드라이브 HTML 파일 ID를 이 시트에서 관리합니다');
+}
+
+/**
+ * 다이제스트 저장 (드라이브 + 시트 하이브리드) 🆕
+ * - HTML 파일은 드라이브에 저장 (이미지 base64 포함 가능)
+ * - 파일 ID는 시트에 저장 (관리 편의성)
+ * - 배포 "실행 계정: 나"로 모든 사용자가 접근 가능
  * @param {string} 통합다이제스트 - 통합 다이제스트 텍스트
  * @param {Array} 조원데이터 - 조원별 상세 데이터
  * @param {string} dateStr - 날짜
  */
 function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) {
-  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+  Logger.log(`\n📝 다이제스트 저장 시작: ${dateStr}`);
 
-  // 1. 전체 원본 내용 파일 생성
-  let 전체내용 = `📚 ${dateStr} 스터디 전체 내용\n`;
-  전체내용 += `생성일시: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')}\n`;
-  전체내용 += `총 ${조원데이터.length}명 참여\n`;
-  전체내용 += '='.repeat(80) + '\n\n';
-
-  조원데이터.forEach((data, index) => {
-    전체내용 += `\n${'#'.repeat(80)}\n`;
-    전체내용 += `# ${index + 1}. ${data.이름}\n`;
-    전체내용 += `${'#'.repeat(80)}\n\n`;
-
-    전체내용 += `📁 제출 파일 (${data.파일목록.length}개):\n`;
-    data.파일목록.forEach(file => {
-      전체내용 += `  - ${file.이름} (${file.타입})\n`;
-    });
-    전체내용 += '\n';
-
-    전체내용 += `📖 전체 내용:\n`;
-    전체내용 += '-'.repeat(80) + '\n';
-    전체내용 += data.내용 + '\n';
-    전체내용 += '-'.repeat(80) + '\n\n';
-  });
-
-  const fullFileName = `full-content-${dateStr}.txt`;
-  const existingFull = folder.getFilesByName(fullFileName);
-  while (existingFull.hasNext()) {
-    existingFull.next().setTrashed(true);
-  }
-
-  const fullFile = folder.createFile(fullFileName, 전체내용, MimeType.PLAIN_TEXT);
-  fullFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  // 2. 간단 요약 파일 저장
-  const summaryFileName = `summary-${dateStr}.txt`;
-  const existingSummary = folder.getFilesByName(summaryFileName);
-  while (existingSummary.hasNext()) {
-    existingSummary.next().setTrashed(true);
-  }
-
-  const summaryFile = folder.createFile(summaryFileName, 통합다이제스트, MimeType.PLAIN_TEXT);
-  summaryFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  // 3. JSON 데이터 저장
-  const jsonData = {
-    date: dateStr,
-    generated: new Date().toISOString(),
-    summary: 통합다이제스트,
-    memberCount: 조원데이터.length,
-    members: 조원데이터.map(data => ({
-      name: data.이름,
-      fileCount: data.파일목록.length,
-      files: data.파일목록,
-      fullContent: data.내용
-    }))
-  };
-
-  const jsonFileName = `digest-${dateStr}.json`;
-  const existingJson = folder.getFilesByName(jsonFileName);
-  while (existingJson.hasNext()) {
-    existingJson.next().setTrashed(true);
-  }
-
-  const jsonFile = folder.createFile(
-    jsonFileName,
-    JSON.stringify(jsonData, null, 2),
-    MimeType.PLAIN_TEXT
-  );
-  jsonFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  // 4. HTML 파일 생성 (카톡 미리보기용)
+  // 1. HTML 파일 생성 (시트에 저장할 내용)
   let htmlContent = `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -3973,6 +4659,55 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
                 padding: 20px;
             }
         }
+
+        /* PDF 다운로드 버튼 스타일 */
+        .pdf-button {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+            transition: all 0.3s ease;
+        }
+        .pdf-button:hover {
+            background: #45a049;
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+            transform: translateY(-2px);
+        }
+        .pdf-button:active {
+            transform: translateY(0);
+        }
+
+        /* 인쇄(PDF 생성) 시 스타일 */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                padding: 20px;
+                max-width: 100%;
+            }
+            .pdf-button {
+                display: none; /* PDF 생성 시 버튼 숨김 */
+            }
+            .member-section {
+                page-break-inside: avoid; /* 섹션이 페이지 중간에 나뉘지 않도록 */
+                margin-bottom: 30px;
+            }
+            .image-gallery img {
+                max-width: 100%;
+                page-break-inside: avoid;
+            }
+        }
     </style>
 </head>
 <body>
@@ -3983,6 +4718,9 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
                 생성일시: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')} |
                 참여: ${조원데이터.length}명
             </div>
+            <button class="pdf-button" onclick="window.print()">
+                📄 PDF로 저장하기
+            </button>
         </div>
 `;
 
@@ -4049,32 +4787,63 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
 </body>
 </html>`;
 
+  Logger.log(`\n📏 HTML 길이: ${htmlContent.length} 문자`);
+
+  // 2. 드라이브에 HTML 파일 저장 (이미지 포함, 권한 문제 해결!)
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
   const htmlFileName = `digest-${dateStr}.html`;
-  const existingHtml = folder.getFilesByName(htmlFileName);
-  while (existingHtml.hasNext()) {
-    existingHtml.next().setTrashed(true);
+
+  // 기존 파일 삭제
+  const existingFiles = folder.getFilesByName(htmlFileName);
+  while (existingFiles.hasNext()) {
+    existingFiles.next().setTrashed(true);
   }
 
+  // 새 파일 생성
   const htmlFile = folder.createFile(htmlFileName, htmlContent, MimeType.HTML);
   htmlFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  const fileId = htmlFile.getId();
 
-  Logger.log(`\n파일 저장 완료:`);
-  Logger.log(`  - ${fullFileName} (전체 원본 내용)`);
-  Logger.log(`  - ${summaryFileName} (간단 요약)`);
-  Logger.log(`  - ${jsonFileName} (JSON 데이터)`);
-  Logger.log(`  - ${htmlFileName} (HTML 파일)`);
+  Logger.log(`✅ 드라이브에 HTML 파일 저장: ${htmlFileName}`);
+  Logger.log(`  - 파일 ID: ${fileId}`);
 
-  // 웹앱 URL 생성 (digest-webapp.gs의 doGet 사용)
-  // 웹앱을 배포한 후에는 아래 URL이 자동으로 생성됩니다
-  Logger.log(`\n📱 카톡 공유 URL (웹앱 배포 필요):`);
-  Logger.log(`배포 후: https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec?date=${dateStr}`);
-  Logger.log(`\n💡 웹앱 배포 방법:`);
-  Logger.log(`1. Apps Script 상단 "배포" 클릭`);
-  Logger.log(`2. "새 배포" 선택`);
-  Logger.log(`3. 유형: "웹 앱"`);
-  Logger.log(`4. 실행 계정: "나"`);
-  Logger.log(`5. 액세스 권한: "모든 사용자"`);
-  Logger.log(`6. 배포 클릭 → URL 복사`);
+  // 3. 스프레드시트 시트에 파일 정보 저장 (HTML 대신 파일 ID 저장)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
+
+  if (!sheet) {
+    Logger.log('⚠️ 다이제스트 시트가 없습니다. 다이제스트시트초기화() 함수를 먼저 실행하세요!');
+    throw new Error('다이제스트 시트가 없습니다. 다이제스트시트초기화() 함수를 먼저 실행하세요.');
+  }
+
+  // 생성 시각
+  const timestamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+
+  // 기존 같은 날짜 데이터 삭제 (있으면)
+  const data = sheet.getDataRange().getValues();
+  for (let i = data.length - 1; i > 0; i--) {  // 헤더 제외하고 역순으로 검색
+    if (data[i][0] === dateStr) {
+      sheet.deleteRow(i + 1);
+      Logger.log(`기존 ${dateStr} 다이제스트 삭제됨`);
+    }
+  }
+
+  // 새 데이터 추가 (날짜, 파일ID, 생성시각)
+  sheet.insertRowBefore(2);
+  sheet.getRange(2, 1, 1, 3).setValues([[
+    dateStr,
+    fileId,  // HTML 내용 대신 드라이브 파일 ID 저장!
+    timestamp
+  ]]);
+
+  Logger.log(`\n✅ 다이제스트 저장 완료!`);
+  Logger.log(`  - 날짜: ${dateStr}`);
+  Logger.log(`  - 파일 ID: ${fileId}`);
+  Logger.log(`  - HTML 길이: ${htmlContent.length} 문자`);
+  Logger.log(`  - 참여자: ${조원데이터.length}명`);
+  Logger.log(`  - 생성 시각: ${timestamp}`);
+  Logger.log(`\n📱 웹앱 URL로 확인 가능:`);
+  Logger.log(`https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec?date=${dateStr}`);
 }
 
 /**
