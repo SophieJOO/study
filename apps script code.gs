@@ -4042,6 +4042,135 @@ function 월간AI다이제스트_자동생성() {
 }
 
 /**
+ * 🆕 월간 원본 파일 수집 (옵시디언용)
+ * 각 조원의 원본 파일을 폴더 구조 그대로 복사
+ * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
+ * @returns {string} 생성된 폴더 URL
+ */
+function 월간원본수집(yearMonth) {
+  if (!yearMonth) {
+    yearMonth = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
+  }
+
+  Logger.log(`\n=== ${yearMonth} 월간 원본 파일 수집 시작 ===\n`);
+
+  // 1. 컬렉션 폴더 생성 또는 찾기
+  const collectionFolderName = `${yearMonth}-스터디모음`;
+  const jsonFolder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+  // 기존 폴더가 있으면 삭제
+  const existingFolders = jsonFolder.getFoldersByName(collectionFolderName);
+  while (existingFolders.hasNext()) {
+    const folder = existingFolders.next();
+    Logger.log(`⚠️ 기존 폴더 삭제: ${folder.getName()}`);
+    folder.setTrashed(true);
+  }
+
+  const collectionFolder = jsonFolder.createFolder(collectionFolderName);
+  Logger.log(`📁 컬렉션 폴더 생성: ${collectionFolderName}\n`);
+
+  // 해당 월의 일수 계산
+  const [year, month] = yearMonth.split('-');
+  const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+
+  let 총파일수 = 0;
+  let 총폴더수 = 0;
+
+  // 2. 각 조원별로 수집
+  for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
+    const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
+
+    Logger.log(`👤 ${memberName} 파일 수집 중...`);
+
+    // 조원 폴더 생성
+    const memberFolder = collectionFolder.createFolder(memberName);
+    let 조원파일수 = 0;
+
+    // 3. 날짜별로 수집
+    for (let day = 1; day <= lastDay; day++) {
+      const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`;
+
+      // 여러 날짜 형식 시도
+      const dateFormats = [];
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const y = parts[0];
+        const m = parts[1];
+        const d = parts[2];
+
+        dateFormats.push(
+          `${y}-${m}-${d}`,      // 2025-11-24
+          `${y}${m}${d}`,        // 20251124 (what 조원)
+          `${y}.${m}.${d}`,      // 2025.11.24
+          `${y}년 ${m}월 ${d}일` // 2025년 11월 24일
+        );
+      }
+
+      // 각 폴더 ID에서 날짜 폴더 찾기
+      let sourceDateFolder = null;
+      for (const folderId of folderIds) {
+        try {
+          const mainFolder = DriveApp.getFolderById(folderId);
+
+          for (const format of dateFormats) {
+            const folders = mainFolder.getFoldersByName(format);
+            if (folders.hasNext()) {
+              sourceDateFolder = folders.next();
+              break;
+            }
+          }
+
+          if (sourceDateFolder) break;
+        } catch (e) {
+          // 폴더 접근 불가
+          continue;
+        }
+      }
+
+      // 날짜 폴더가 있으면 파일 복사
+      if (sourceDateFolder) {
+        const destDateFolder = memberFolder.createFolder(dateStr);
+        총폴더수++;
+
+        const files = sourceDateFolder.getFiles();
+        let 날짜파일수 = 0;
+
+        while (files.hasNext()) {
+          const file = files.next();
+          const fileName = file.getName().toLowerCase();
+
+          // off.md는 제외
+          if (fileName === 'off.md' || fileName === 'off.txt') {
+            continue;
+          }
+
+          // 파일 복사
+          file.makeCopy(file.getName(), destDateFolder);
+          날짜파일수++;
+          조원파일수++;
+          총파일수++;
+        }
+
+        if (날짜파일수 > 0) {
+          Logger.log(`  ✅ ${dateStr}: ${날짜파일수}개 파일`);
+        }
+      }
+    }
+
+    Logger.log(`  📊 ${memberName}: 총 ${조원파일수}개 파일\n`);
+  }
+
+  Logger.log(`\n${'='.repeat(60)}`);
+  Logger.log(`✅ 월간 원본 수집 완료`);
+  Logger.log(`📁 총 폴더: ${총폴더수}개`);
+  Logger.log(`📄 총 파일: ${총파일수}개`);
+  Logger.log(`🔗 폴더 URL: ${collectionFolder.getUrl()}`);
+  Logger.log('='.repeat(60));
+
+  return collectionFolder.getUrl();
+}
+
+/**
  * AI로 조원의 한 달 학습 내용 분석
  */
 function AI월간분석(memberName, 한달내용, 출석일수, 파일수, apiKey) {
