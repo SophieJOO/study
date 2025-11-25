@@ -3819,6 +3819,416 @@ function 일일AI다이제스트생성(dateStr) {
 }
 
 /**
+ * 🆕 월간 AI 다이제스트 생성
+ * - 한 달 동안의 학습 내용을 AI로 분석하여 조원별 요약 생성
+ * @param {string} yearMonth - 년월 (yyyy-MM 형식, 예: 2025-11)
+ */
+function 월간AI다이제스트생성(yearMonth) {
+  if (!yearMonth) {
+    // 기본값: 이번 달
+    yearMonth = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
+  }
+
+  Logger.log(`\n=== ${yearMonth} 월간 다이제스트 생성 시작 ===\n`);
+
+  // Gemini API 키 확인
+  const GEMINI_API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!GEMINI_API_KEY) {
+    Logger.log('❌ Gemini API 키가 설정되지 않았습니다.');
+    Logger.log('스크립트 속성에 GEMINI_API_KEY를 설정하세요.');
+    return null;
+  }
+
+  const 조원분석결과 = [];
+
+  // 해당 월의 일수 계산
+  const [year, month] = yearMonth.split('-');
+  const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+
+  Logger.log(`📅 분석 기간: ${yearMonth}-01 ~ ${yearMonth}-${String(lastDay).padStart(2, '0')}\n`);
+
+  // 각 조원별로 한 달치 데이터 수집 및 분석
+  for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
+    const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
+
+    Logger.log(`👤 ${memberName} 분석 중...`);
+
+    // 한 달치 데이터 수집
+    let 한달내용 = '';
+    let 출석일수 = 0;
+    let 파일수 = 0;
+
+    for (let day = 1; day <= lastDay; day++) {
+      const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`;
+
+      for (const folderId of folderIds) {
+        const content = 파일내용수집(memberName, folderId, dateStr);
+
+        if (content && content.내용) {
+          한달내용 += `\n[${dateStr}]\n${content.내용}\n`;
+          출석일수++;
+          파일수 += content.파일목록.length;
+          break; // 첫 번째 폴더에서 찾으면 중단
+        }
+      }
+    }
+
+    if (출석일수 === 0) {
+      Logger.log(`  ⚠️ ${yearMonth}에 제출한 내용이 없습니다.\n`);
+      continue;
+    }
+
+    Logger.log(`  📊 수집 완료: ${출석일수}일 출석, ${파일수}개 파일`);
+
+    // AI 분석 요청
+    Logger.log(`  🤖 AI 분석 중...`);
+
+    const 분석결과 = AI월간분석(memberName, 한달내용, 출석일수, 파일수, GEMINI_API_KEY);
+
+    if (분석결과) {
+      조원분석결과.push({
+        이름: memberName,
+        출석일수: 출석일수,
+        파일수: 파일수,
+        분석내용: 분석결과
+      });
+      Logger.log(`  ✅ 분석 완료\n`);
+    } else {
+      Logger.log(`  ❌ AI 분석 실패\n`);
+    }
+
+    // API 호출 제한 고려하여 잠시 대기
+    Utilities.sleep(1000);
+  }
+
+  if (조원분석결과.length === 0) {
+    Logger.log('\n❌ 분석할 데이터가 없습니다.');
+    return null;
+  }
+
+  Logger.log(`\n✅ ${조원분석결과.length}명의 월간 분석 완료`);
+
+  // 월간 다이제스트 저장
+  월간다이제스트저장(조원분석결과, yearMonth);
+
+  return 조원분석결과;
+}
+
+/**
+ * AI로 조원의 한 달 학습 내용 분석
+ */
+function AI월간분석(memberName, 한달내용, 출석일수, 파일수, apiKey) {
+  try {
+    // 내용이 너무 길면 잘라내기 (Gemini API 토큰 제한 고려)
+    const maxLength = 30000; // 약 3만자로 제한
+    if (한달내용.length > maxLength) {
+      한달내용 = 한달내용.substring(0, maxLength) + '\n\n... (내용이 너무 길어 일부만 포함됨)';
+    }
+
+    const prompt = `당신은 한의학 스터디 그룹의 학습 분석 전문가입니다.
+
+아래는 "${memberName}" 조원이 한 달 동안 공부한 내용입니다.
+- 출석일수: ${출석일수}일
+- 제출 파일 수: ${파일수}개
+
+학습 내용:
+${한달내용}
+
+다음 형식으로 분석해주세요:
+
+## 📚 주요 학습 주제
+- 이 조원이 집중적으로 공부한 핵심 주제 3-5개를 나열해주세요
+
+## 📈 학습 패턴 분석
+- 학습 빈도, 깊이, 변화 추이 등을 분석해주세요
+
+## 💡 핵심 내용 요약
+- 가장 중요한 학습 내용을 3-4문장으로 요약해주세요
+
+## 🌟 특징 및 강점
+- 이 조원만의 학습 특징이나 강점을 2-3가지 언급해주세요
+
+분석은 간결하고 명확하게 작성해주세요.`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+
+    const payload = {
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }]
+    };
+
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+
+    const response = UrlFetchApp.fetch(url, options);
+    const result = JSON.parse(response.getContentText());
+
+    if (result.candidates && result.candidates[0] && result.candidates[0].content) {
+      return result.candidates[0].content.parts[0].text;
+    } else {
+      Logger.log(`  AI 응답 오류: ${JSON.stringify(result)}`);
+      return null;
+    }
+
+  } catch (e) {
+    Logger.log(`  AI 분석 오류: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * 월간 다이제스트 저장 (드라이브 + 시트)
+ */
+function 월간다이제스트저장(조원분석결과, yearMonth) {
+  Logger.log(`\n📝 월간 다이제스트 저장 시작: ${yearMonth}`);
+
+  // HTML 생성
+  let htmlContent = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 ${yearMonth} 월간 스터디 다이제스트</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+            line-height: 1.8;
+            color: #333;
+            background: #f8f9fa;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 50px;
+            padding-bottom: 30px;
+            border-bottom: 4px solid #4CAF50;
+        }
+        .header h1 {
+            font-size: 32px;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        .meta {
+            color: #7f8c8d;
+            font-size: 16px;
+        }
+        .member-analysis {
+            margin-bottom: 60px;
+            padding: 35px;
+            background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+            border-radius: 10px;
+            border-left: 5px solid #4CAF50;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .member-analysis h2 {
+            font-size: 26px;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        .member-analysis h2::before {
+            content: "👤";
+            margin-right: 12px;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 25px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+        .stat-item {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .stat-label {
+            font-size: 13px;
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+        .analysis-content {
+            color: #555;
+            font-size: 15px;
+        }
+        .analysis-content h2 {
+            font-size: 20px;
+            color: #34495e;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 8px;
+        }
+        .analysis-content h2::before {
+            content: "";
+        }
+        .analysis-content ul {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+        .analysis-content li {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+        .pdf-button {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 14px 35px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 17px;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            box-shadow: 0 3px 10px rgba(76, 175, 80, 0.3);
+            transition: all 0.3s ease;
+        }
+        .pdf-button:hover {
+            background: #45a049;
+            box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+            transform: translateY(-2px);
+        }
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+            .pdf-button {
+                display: none;
+            }
+            .member-analysis {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 ${yearMonth} 월간 스터디 다이제스트</h1>
+            <div class="meta">
+                생성일시: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')} |
+                총 ${조원분석결과.length}명 분석
+            </div>
+            <button class="pdf-button" onclick="window.print()">
+                📄 PDF로 저장하기
+            </button>
+        </div>
+`;
+
+  조원분석결과.forEach((data) => {
+    htmlContent += `
+        <div class="member-analysis">
+            <h2>${data.이름}</h2>
+
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-number">${data.출석일수}일</div>
+                    <div class="stat-label">출석</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">${data.파일수}개</div>
+                    <div class="stat-label">파일</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">${Math.round(data.파일수 / data.출석일수 * 10) / 10}</div>
+                    <div class="stat-label">평균 파일/일</div>
+                </div>
+            </div>
+
+            <div class="analysis-content">
+                ${마크다운을HTML로(data.분석내용)}
+            </div>
+        </div>
+`;
+  });
+
+  htmlContent += `
+    </div>
+</body>
+</html>`;
+
+  // 드라이브에 저장
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+  const htmlFileName = `monthly-digest-${yearMonth}.html`;
+
+  const existingFiles = folder.getFilesByName(htmlFileName);
+  while (existingFiles.hasNext()) {
+    existingFiles.next().setTrashed(true);
+  }
+
+  const htmlFile = folder.createFile(htmlFileName, htmlContent, MimeType.HTML);
+  htmlFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  const fileId = htmlFile.getId();
+
+  Logger.log(`✅ 드라이브에 HTML 파일 저장: ${htmlFileName}`);
+  Logger.log(`  - 파일 ID: ${fileId}`);
+
+  // 시트에 파일 ID 저장
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
+
+  if (sheet) {
+    const timestamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+
+    // 기존 같은 월 데이터 삭제
+    const data = sheet.getDataRange().getValues();
+    for (let i = data.length - 1; i > 0; i--) {
+      if (data[i][0] === `MONTHLY-${yearMonth}`) {
+        sheet.deleteRow(i + 1);
+        Logger.log(`기존 ${yearMonth} 월간 다이제스트 삭제됨`);
+      }
+    }
+
+    // 새 데이터 추가
+    sheet.insertRowBefore(2);
+    sheet.getRange(2, 1, 1, 3).setValues([[
+      `MONTHLY-${yearMonth}`,
+      fileId,
+      timestamp
+    ]]);
+
+    Logger.log(`✅ 시트에 파일 ID 저장 완료`);
+  }
+
+  Logger.log(`\n📱 웹앱 URL로 확인:`);
+  Logger.log(`https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec?date=MONTHLY-${yearMonth}`);
+}
+
+/**
  * 파일 내용 수집
  * @param {string} memberName - 조원 이름
  * @param {string} folderId - 조원 폴더 ID
