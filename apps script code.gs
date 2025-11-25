@@ -3639,16 +3639,44 @@ function 파일내용수집(memberName, folderId, dateStr) {
     }
     Logger.log(`  📂 하위 폴더들: ${folderNames.join(', ')}`);
 
-    // 날짜 폴더 찾기 (yyyy-MM-dd 형식)
-    const dateFolders = memberFolder.getFoldersByName(dateStr);
-    if (!dateFolders.hasNext()) {
-      Logger.log(`  ❌ 날짜 폴더 없음: ${dateStr}`);
+    // 여러 날짜 형식 시도 (what 조원은 yyyyMMdd 형식 사용)
+    const dateFormats = [];
+
+    // dateStr이 yyyy-MM-dd 형식이라고 가정 (예: 2025-11-24)
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parts[0];
+      const month = parts[1];
+      const day = parts[2];
+
+      // 다양한 날짜 형식 생성
+      dateFormats.push(
+        `${year}-${month}-${day}`,           // 2025-11-24
+        `${year}${month}${day}`,             // 20251124 (what 조원)
+        `${year}.${month}.${day}`,           // 2025.11.24
+        `${year}년 ${month}월 ${day}일`      // 2025년 11월 24일
+      );
+    }
+
+    Logger.log(`  🔍 시도할 날짜 형식: ${dateFormats.join(', ')}`);
+
+    // 각 형식을 순서대로 시도
+    let dateFolder = null;
+    for (const format of dateFormats) {
+      const folders = memberFolder.getFoldersByName(format);
+      if (folders.hasNext()) {
+        dateFolder = folders.next();
+        Logger.log(`  ✅ 폴더 발견: ${dateFolder.getName()} (형식: ${format})`);
+        break;
+      }
+    }
+
+    // 모든 형식을 시도했지만 찾지 못함
+    if (!dateFolder) {
+      Logger.log(`  ❌ 날짜 폴더 없음 (모든 형식 시도함)`);
       Logger.log(`  💡 찾은 하위 폴더: ${folderNames.length}개`);
       return null;
     }
-
-    const dateFolder = dateFolders.next();
-    Logger.log(`  ✅ 폴더 발견: ${dateFolder.getName()}`);
 
     let 전체내용 = '';
     const 파일목록 = [];
