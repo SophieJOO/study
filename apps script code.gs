@@ -223,8 +223,200 @@ function 출석체크_메인() {
 
   // JSON 파일 생성
   JSON파일생성();
-  
+
   Logger.log('=== 출석 체크 완료 ===');
+}
+
+/**
+ * 🆕 과거 출석 기록 재검사 (off.md 파일 누락 수정용)
+ * - 최근 N일간의 출석 기록을 다시 확인
+ * - off.md 파일이 있는데 '출석'으로 체크된 경우 '오프'로 수정
+ * @param {number} days - 확인할 일수 (기본: 7일)
+ */
+function 출석기록재검사(days = 7) {
+  Logger.log(`=== 최근 ${days}일 출석 기록 재검사 시작 ===\n`);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+  if (!sheet) {
+    Logger.log('❌ 제출기록 시트가 없습니다.');
+    return;
+  }
+
+  // 최근 N일의 날짜 생성
+  const targetDates = [];
+  const now = new Date();
+
+  for (let i = 0; i < days; i++) {
+    const checkDate = new Date(now);
+    checkDate.setDate(checkDate.getDate() - i);
+    const dateStr = Utilities.formatDate(checkDate, 'Asia/Seoul', 'yyyy-MM-dd');
+    targetDates.push(dateStr);
+  }
+
+  Logger.log(`📅 검사 대상 날짜: ${targetDates.join(', ')}\n`);
+
+  let totalChecked = 0;
+  let totalFixed = 0;
+
+  // 각 조원별로 검사
+  for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
+    const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
+
+    Logger.log(`👤 ${memberName} 검사 중...`);
+    let memberFixed = 0;
+
+    // 각 날짜 검사
+    for (const dateStr of targetDates) {
+      // 해당 날짜의 현재 출석 상태 확인
+      const data = sheet.getDataRange().getValues();
+      let currentStatus = null;
+
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][1] === memberName && data[i][2] === dateStr) {
+          currentStatus = data[i][6]; // 출석상태 열
+          break;
+        }
+      }
+
+      // 출석('O')으로 되어 있는 경우만 재검사
+      if (currentStatus !== 'O') {
+        continue;
+      }
+
+      totalChecked++;
+
+      // 폴더에서 off.md 파일 찾기
+      let hasOffFile = false;
+
+      for (const folderId of folderIds) {
+        try {
+          const memberFolder = DriveApp.getFolderById(folderId);
+
+          // 여러 날짜 형식 시도
+          const dateFormats = [];
+          const parts = dateStr.split('-');
+          if (parts.length === 3) {
+            const year = parts[0];
+            const month = parts[1];
+            const day = parts[2];
+
+            dateFormats.push(
+              `${year}-${month}-${day}`,
+              `${year}${month}${day}`,
+              `${year}.${month}.${day}`,
+              `${year}년 ${month}월 ${day}일`
+            );
+          }
+
+          // 날짜 폴더 찾기
+          let dateFolder = null;
+          for (const format of dateFormats) {
+            const folders = memberFolder.getFoldersByName(format);
+            if (folders.hasNext()) {
+              dateFolder = folders.next();
+              break;
+            }
+          }
+
+          if (!dateFolder) {
+            continue;
+          }
+
+          // 폴더 내 파일 확인
+          const files = dateFolder.getFiles();
+          while (files.hasNext()) {
+            const file = files.next();
+            const fileName = file.getName().toLowerCase();
+
+            if (fileName === 'off.md' || fileName === 'off.txt') {
+              hasOffFile = true;
+              break;
+            }
+          }
+
+          if (hasOffFile) {
+            break; // 찾았으면 다른 폴더 검사 안함
+          }
+
+        } catch (e) {
+          // 폴더 접근 오류는 무시
+        }
+      }
+
+      // off.md 파일이 있으면 오프로 수정
+      if (hasOffFile) {
+        Logger.log(`  🔧 ${dateStr} - 출석 → 오프로 수정 (off.md 발견)`);
+
+        // 기록 업데이트
+        const files = 파일목록및링크생성_날짜폴더찾기(memberName, folderIds, dateStr);
+        if (files) {
+          출석기록추가(memberName, dateStr, files, 'OFF', 'off.md 파일 (재검사로 수정됨)');
+          memberFixed++;
+          totalFixed++;
+        }
+      }
+    }
+
+    if (memberFixed > 0) {
+      Logger.log(`  ✅ ${memberFixed}개 기록 수정됨\n`);
+    } else {
+      Logger.log(`  ✓ 수정 필요 없음\n`);
+    }
+  }
+
+  Logger.log(`\n=== 재검사 완료 ===`);
+  Logger.log(`📊 총 ${totalChecked}개 기록 검사`);
+  Logger.log(`🔧 총 ${totalFixed}개 기록 수정`);
+
+  // JSON 파일 재생성
+  if (totalFixed > 0) {
+    Logger.log('\n📁 JSON 파일 재생성 중...');
+    JSON파일생성();
+    Logger.log('✅ JSON 파일 업데이트 완료');
+  }
+}
+
+/**
+ * 날짜 폴더를 찾아서 파일 목록 반환 (재검사용)
+ */
+function 파일목록및링크생성_날짜폴더찾기(memberName, folderIds, dateStr) {
+  for (const folderId of folderIds) {
+    try {
+      const memberFolder = DriveApp.getFolderById(folderId);
+
+      // 여러 날짜 형식 시도
+      const dateFormats = [];
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const year = parts[0];
+        const month = parts[1];
+        const day = parts[2];
+
+        dateFormats.push(
+          `${year}-${month}-${day}`,
+          `${year}${month}${day}`,
+          `${year}.${month}.${day}`,
+          `${year}년 ${month}월 ${day}일`
+        );
+      }
+
+      // 날짜 폴더 찾기
+      for (const format of dateFormats) {
+        const folders = memberFolder.getFoldersByName(format);
+        if (folders.hasNext()) {
+          const dateFolder = folders.next();
+          return 파일목록및링크생성(dateFolder);
+        }
+      }
+
+    } catch (e) {
+      // 폴더 접근 오류는 무시
+    }
+  }
+
+  return null;
 }
 
 function 마감시간체크() {
