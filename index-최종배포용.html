@@ -79,6 +79,49 @@
         .monthly-digest-btn:active {
             transform: translateY(0);
         }
+        /* 월 네비게이션 버튼 */
+        .month-navigation {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+        .month-nav-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #42a5f5 0%, #1976d2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(25, 118, 210, 0.3);
+        }
+        .month-nav-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(25, 118, 210, 0.4);
+        }
+        .month-nav-btn:active {
+            transform: translateY(0);
+        }
+        .month-nav-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .current-month-display {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            min-width: 180px;
+            text-align: center;
+        }
         .rules-box {
             background-color: #fff3cd;
             border: 2px solid #ffc107;
@@ -348,7 +391,19 @@
 </head>
 <body>
     <div class="container">
-        <h1>📚 스터디 출석표 <span id="currentMonth"></span></h1>
+        <h1>📚 스터디 출석표</h1>
+
+        <!-- 월 네비게이션 -->
+        <div class="month-navigation">
+            <button class="month-nav-btn" id="prevMonthBtn" onclick="changeMonth(-1)">
+                ◀ 이전 달
+            </button>
+            <span class="current-month-display" id="currentMonth"></span>
+            <button class="month-nav-btn" id="nextMonthBtn" onclick="changeMonth(1)">
+                다음 달 ▶
+            </button>
+        </div>
+
         <div class="last-update">
             마지막 업데이트: <span id="lastUpdate">-</span>
         </div>
@@ -447,10 +502,35 @@
         const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwvp_YIPlshnQm-HJISz6AvC6g0Mf5oFMLi0uMJ7DypVOqCGmJhDFmDVQ-60QN6Df3-gg/exec';
         const AI_DIGEST_FOLDER_ID = '1el9NDYDGfWlUEkBzI1GT_1TULLoBnSsQ'; // AI 다이제스트 저장 폴더
         const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth(); // 0-based (0=1월, 10=11월)
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const currentDay = now.getDate();
+        const todayYear = now.getFullYear();
+        const todayMonth = now.getMonth(); // 0-based (0=1월, 10=11월)
+        const todayDay = now.getDate();
+
+        // 표시 월 변수 (변경 가능)
+        let displayYear = todayYear;
+        let displayMonth = todayMonth;
+
+        // 동적으로 계산되는 변수
+        function getDaysInMonth(y, m) {
+            return new Date(y, m + 1, 0).getDate();
+        }
+
+        function getCurrentDayForMonth(y, m) {
+            // 오늘이 해당 월에 속하면 오늘 날짜, 아니면 해당 월의 마지막 날 또는 0
+            if (y === todayYear && m === todayMonth) {
+                return todayDay;
+            } else if (y < todayYear || (y === todayYear && m < todayMonth)) {
+                // 과거 달은 전체 날짜 표시
+                return getDaysInMonth(y, m);
+            }
+            return 0; // 미래 달
+        }
+
+        // 이전 코드 호환용 (일부 함수에서 사용)
+        let year = displayYear;
+        let month = displayMonth;
+        let daysInMonth = getDaysInMonth(displayYear, displayMonth);
+        let currentDay = getCurrentDayForMonth(displayYear, displayMonth);
 
         // AI 다이제스트 버튼 링크 설정
         document.addEventListener('DOMContentLoaded', function() {
@@ -616,17 +696,78 @@
             weeklyContainer.innerHTML = html;
         }
 
+        // ===== 월 변경 함수 =====
+        function changeMonth(direction) {
+            displayMonth += direction;
+
+            if (displayMonth < 0) {
+                displayMonth = 11;
+                displayYear--;
+            } else if (displayMonth > 11) {
+                displayMonth = 0;
+                displayYear++;
+            }
+
+            // 호환용 변수 업데이트
+            year = displayYear;
+            month = displayMonth;
+            daysInMonth = getDaysInMonth(displayYear, displayMonth);
+            currentDay = getCurrentDayForMonth(displayYear, displayMonth);
+
+            // UI 업데이트
+            updateMonthDisplay();
+            updateNavigationButtons();
+
+            // 데이터 다시 로드
+            document.getElementById('loadingIndicator').style.display = 'block';
+            document.getElementById('contentContainer').style.display = 'none';
+            document.getElementById('errorContainer').style.display = 'none';
+
+            // 테이블 헤더 재생성
+            renderDateHeaders();
+
+            // 데이터 로드
+            loadAttendanceData();
+        }
+
+        // 월 표시 업데이트
+        function updateMonthDisplay() {
+            document.getElementById('currentMonth').textContent = `${displayYear}년 ${displayMonth + 1}월`;
+            document.getElementById('summaryMonth').textContent = `${displayMonth + 1}월`;
+            document.getElementById('totalDays').textContent = getCurrentDayForMonth(displayYear, displayMonth);
+        }
+
+        // 네비게이션 버튼 상태 업데이트
+        function updateNavigationButtons() {
+            const nextBtn = document.getElementById('nextMonthBtn');
+
+            // 이번 달이면 다음 달 버튼 비활성화
+            if (displayYear === todayYear && displayMonth === todayMonth) {
+                nextBtn.disabled = true;
+            } else {
+                nextBtn.disabled = false;
+            }
+        }
+
         // ===== 테이블 헤더 생성 =====
         function renderDateHeaders() {
             const headerRow = document.getElementById('dateHeaders');
 
+            // 기존 헤더 초기화 (조원명 컬럼 유지)
+            while (headerRow.children.length > 1) {
+                headerRow.removeChild(headerRow.lastChild);
+            }
+
+            const monthDays = getDaysInMonth(displayYear, displayMonth);
+            const monthCurrentDay = getCurrentDayForMonth(displayYear, displayMonth);
+
             // 날짜별 헤더
-            for (let i = 1; i <= daysInMonth; i++) {
+            for (let i = 1; i <= monthDays; i++) {
                 const th = document.createElement('th');
                 th.textContent = i;
 
-                // 오늘 날짜 강조
-                if (i === currentDay) {
+                // 오늘 날짜 강조 (이번 달인 경우만)
+                if (displayYear === todayYear && displayMonth === todayMonth && i === todayDay) {
                     th.style.backgroundColor = '#FFA726';
                 }
 
@@ -960,8 +1101,9 @@
 
         // ===== 초기화 =====
         document.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('currentMonth').textContent = `${year}년 ${month + 1}월`;
-            document.getElementById('summaryMonth').textContent = `${month + 1}월`;
+            // 월 표시 및 네비게이션 버튼 초기화
+            updateMonthDisplay();
+            updateNavigationButtons();
             document.getElementById('totalDays').textContent = currentDay;
 
             renderDateHeaders();
