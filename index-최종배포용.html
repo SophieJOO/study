@@ -723,6 +723,12 @@
             document.getElementById('contentContainer').style.display = 'none';
             document.getElementById('errorContainer').style.display = 'none';
 
+            // 주간 집계 컨테이너 초기화
+            const weeklySummary = document.getElementById('weeklySummary');
+            if (weeklySummary) {
+                weeklySummary.innerHTML = '';
+            }
+
             // 테이블 헤더 재생성
             renderDateHeaders();
 
