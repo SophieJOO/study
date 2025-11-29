@@ -4613,13 +4613,32 @@ function 파일내용수집(memberName, folderId, dateStr) {
         }
       }
 
-      // PDF (파일명만 - OCR은 별도 구현 필요)
+      // PDF (OCR로 텍스트 추출)
       else if (mimeType === MimeType.PDF) {
-        전체내용 += `[PDF 문서: ${fileName}]\n\n`;
-        파일목록.push({
-          이름: fileName,
-          타입: 'PDF'
-        });
+        try {
+          Logger.log(`  PDF OCR 시작: ${fileName}`);
+          const pdfContent = PDF텍스트추출(file);
+
+          if (pdfContent && pdfContent.trim().length > 0) {
+            전체내용 += `[PDF 문서: ${fileName}]\n\n${pdfContent}\n\n` + '='.repeat(50) + '\n\n';
+            Logger.log(`  PDF OCR 성공: ${fileName} (${pdfContent.length}자)`);
+          } else {
+            전체내용 += `[PDF 문서: ${fileName}] (텍스트 추출 실패 또는 이미지 PDF)\n\n`;
+            Logger.log(`  PDF OCR 실패 또는 빈 내용: ${fileName}`);
+          }
+
+          파일목록.push({
+            이름: fileName,
+            타입: 'PDF'
+          });
+        } catch (e) {
+          Logger.log(`  PDF 처리 실패: ${fileName} - ${e.message}`);
+          전체내용 += `[PDF 문서: ${fileName}] (처리 실패)\n\n`;
+          파일목록.push({
+            이름: fileName,
+            타입: 'PDF'
+          });
+        }
       }
 
       // 이미지
@@ -5214,5 +5233,94 @@ function AI저장폴더확인() {
   } catch (e) {
     Logger.log(`❌ 오류 발생: ${e.message}`);
     Logger.log(e.stack);
+  }
+}
+
+/**
+ * 🆕 PDF 텍스트 추출 함수
+ * Google Drive OCR을 사용하여 PDF에서 텍스트 추출
+ * @param {File} pdfFile - Google Drive PDF 파일 객체
+ * @returns {string} 추출된 텍스트 (실패 시 빈 문자열)
+ */
+function PDF텍스트추출(pdfFile) {
+  let tempDocId = null;
+
+  try {
+    // PDF를 Google Docs로 변환 (OCR 활성화)
+    const blob = pdfFile.getBlob();
+    const resource = {
+      title: '[임시] PDF_OCR_' + new Date().getTime(),
+      mimeType: MimeType.GOOGLE_DOCS
+    };
+
+    // Drive API를 사용하여 OCR로 변환
+    const tempDoc = Drive.Files.insert(resource, blob, {
+      ocr: true,
+      ocrLanguage: 'ko'  // 한국어 OCR
+    });
+
+    tempDocId = tempDoc.id;
+
+    // 변환된 Google Docs에서 텍스트 추출
+    const doc = DocumentApp.openById(tempDocId);
+    const text = doc.getBody().getText();
+
+    // 임시 파일 삭제
+    DriveApp.getFileById(tempDocId).setTrashed(true);
+    tempDocId = null;
+
+    return text.trim();
+
+  } catch (e) {
+    Logger.log(`PDF OCR 오류: ${e.message}`);
+
+    // 임시 파일이 생성되었다면 삭제
+    if (tempDocId) {
+      try {
+        DriveApp.getFileById(tempDocId).setTrashed(true);
+      } catch (deleteError) {
+        Logger.log(`임시 파일 삭제 실패: ${deleteError.message}`);
+      }
+    }
+
+    return '';
+  }
+}
+
+/**
+ * 🧪 PDF OCR 테스트 함수
+ * 특정 PDF 파일의 텍스트 추출을 테스트
+ */
+function PDF_OCR_테스트() {
+  // 테스트할 PDF 파일 ID를 입력하세요
+  const 테스트PDF_ID = '';  // ← 여기에 PDF 파일 ID 입력
+
+  if (!테스트PDF_ID) {
+    Logger.log('❌ 테스트할 PDF 파일 ID를 입력해주세요.');
+    Logger.log('사용법: 테스트PDF_ID 변수에 PDF 파일 ID를 입력');
+    return;
+  }
+
+  try {
+    const file = DriveApp.getFileById(테스트PDF_ID);
+    Logger.log(`=== PDF OCR 테스트 ===`);
+    Logger.log(`파일명: ${file.getName()}`);
+    Logger.log(`\n텍스트 추출 중...`);
+
+    const text = PDF텍스트추출(file);
+
+    if (text) {
+      Logger.log(`\n✅ 추출 성공! (${text.length}자)`);
+      Logger.log(`\n--- 추출된 텍스트 ---`);
+      Logger.log(text.substring(0, 2000));  // 처음 2000자만 출력
+      if (text.length > 2000) {
+        Logger.log(`\n... (${text.length - 2000}자 더 있음)`);
+      }
+    } else {
+      Logger.log(`\n❌ 텍스트 추출 실패 (이미지 PDF이거나 빈 문서)`);
+    }
+
+  } catch (e) {
+    Logger.log(`❌ 오류: ${e.message}`);
   }
 }
