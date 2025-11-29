@@ -30,7 +30,8 @@ const CONFIG = {
     '오늘의너굴이': '1572mLeNrDLWLnXRronM-cfNpnUt-wBAM',
     'Dann': '1mMoVApl7GN3EUYi9oPi7Nfo_2hYDb9Dw',
     '보노보노': '1_Mqn79Y1Qp79DWBxcbP-SGVUGjJA3PGw',
-    'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG']
+    'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG'],
+    '스카피': ''  // TODO: 스카피가 폴더 공유 후 폴더 ID 입력 필요
   },
   
   // 시트 이름
