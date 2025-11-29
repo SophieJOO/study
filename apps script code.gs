@@ -5246,20 +5246,50 @@ function PDF텍스트추출(pdfFile) {
   let tempDocId = null;
 
   try {
-    // PDF를 Google Docs로 변환 (OCR 활성화)
     const blob = pdfFile.getBlob();
-    const resource = {
-      title: '[임시] PDF_OCR_' + new Date().getTime(),
-      mimeType: MimeType.GOOGLE_DOCS
+    const fileName = pdfFile.getName().replace(/\.pdf$/i, '_OCR_TEMP');
+
+    // Google Drive API v3를 사용하여 PDF를 Google Docs로 변환 (OCR 적용)
+    const boundary = '-------314159265358979323846';
+    const delimiter = "\r\n--" + boundary + "\r\n";
+    const closeDelimiter = "\r\n--" + boundary + "--";
+
+    const metadata = {
+      name: fileName,
+      mimeType: 'application/vnd.google-apps.document'
     };
 
-    // Drive API를 사용하여 OCR로 변환
-    const tempDoc = Drive.Files.insert(resource, blob, {
-      ocr: true,
-      ocrLanguage: 'ko'  // 한국어 OCR
-    });
+    const requestBody =
+      delimiter +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify(metadata) +
+      delimiter +
+      'Content-Type: application/pdf\r\n' +
+      'Content-Transfer-Encoding: base64\r\n\r\n' +
+      Utilities.base64Encode(blob.getBytes()) +
+      closeDelimiter;
 
-    tempDocId = tempDoc.id;
+    const response = UrlFetchApp.fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&ocrLanguage=ko',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + ScriptApp.getOAuthToken(),
+          'Content-Type': 'multipart/related; boundary=' + boundary
+        },
+        payload: requestBody,
+        muteHttpExceptions: true
+      }
+    );
+
+    const result = JSON.parse(response.getContentText());
+
+    if (result.error) {
+      Logger.log(`PDF 업로드 오류: ${result.error.message}`);
+      return '';
+    }
+
+    tempDocId = result.id;
 
     // 변환된 Google Docs에서 텍스트 추출
     const doc = DocumentApp.openById(tempDocId);
