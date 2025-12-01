@@ -30,7 +30,8 @@ const CONFIG = {
     '오늘의너굴이': '1572mLeNrDLWLnXRronM-cfNpnUt-wBAM',
     'Dann': '1mMoVApl7GN3EUYi9oPi7Nfo_2hYDb9Dw',
     '보노보노': '1_Mqn79Y1Qp79DWBxcbP-SGVUGjJA3PGw',
-    'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG']
+    'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG'],
+    '스카피': ''  // TODO: 스카피가 폴더 공유 후 폴더 ID 입력 필요
   },
   
   // 시트 이름
@@ -516,10 +517,57 @@ function 마감시간체크() {
   }
   
   Logger.log('=== 마감시간 체크 완료 ===');
-  
-  // JSON 재생성
+
+  // JSON 재생성 (현재 달 + 처리된 날짜의 달)
   Logger.log('JSON 파일 재생성 중...');
-  JSON파일생성();
+  JSON파일생성();  // 현재 달
+
+  // 처리된 날짜 중 이전 달이 있으면 해당 달도 JSON 재생성
+  const now2 = new Date();
+  const currentMonth = now2.getMonth() + 1;
+  const currentYear = now2.getFullYear();
+
+  const processedMonths = new Set();
+  for (const dateStr of targetDates) {
+    const [year, month] = dateStr.split('-').map(Number);
+    if (year !== currentYear || month !== currentMonth) {
+      processedMonths.add(`${year}-${month}`);
+    }
+  }
+
+  for (const yearMonth of processedMonths) {
+    const [year, month] = yearMonth.split('-').map(Number);
+    Logger.log(`이전 달 JSON 재생성: ${year}년 ${month}월`);
+    특정월JSON생성(year, month);           // 1-based month
+
+    Logger.log(`이전 달 주간집계 재생성: ${year}년 ${month}월`);
+    const zeroBasedMonth = month - 1;      // 0-based month (1월=0, 12월=11)
+    const 집계결과 = 월별주간집계(year, zeroBasedMonth);
+    주간집계저장(year, zeroBasedMonth, 집계결과);
+    주간집계JSON저장(year, zeroBasedMonth, 집계결과);
+  }
+}
+
+/**
+ * 🆕 OFF 파일 확인 함수 (off.md 또는 off.txt 파일 존재 여부 확인)
+ * @param {Folder} folder - 확인할 폴더 객체
+ * @returns {boolean} OFF 파일 존재 여부
+ */
+function OFF파일확인(folder) {
+  try {
+    const files = folder.getFiles();
+    while (files.hasNext()) {
+      const file = files.next();
+      const fileName = file.getName().toLowerCase();
+      if (fileName === 'off.md' || fileName === 'off.txt') {
+        return true;
+      }
+    }
+    return false;
+  } catch (error) {
+    Logger.log(`OFF파일확인 오류: ${error.message}`);
+    return false;
+  }
 }
 
 /**
@@ -991,6 +1039,300 @@ function JSON파일생성() {
     const file = folder.createFile(fileName, jsonString, MimeType.PLAIN_TEXT);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
+    Logger.log(`JSON 파일 생성 완료: ${file.getUrl()}`);
+  } catch (error) {
+    Logger.log(`JSON 파일 생성 오류: ${error.message}`);
+  }
+}
+
+/**
+ * 11월 JSON 재생성 (편의 함수)
+ */
+function JSON재생성_2025년11월() {
+  특정월JSON생성(2025, 11);
+}
+
+/**
+ * 11월 주간집계 재생성 (편의 함수)
+ * 주의: 월별주간집계는 0-based month 사용 (11월 = 10)
+ */
+function 주간집계재생성_2025년11월() {
+  const year = 2025;
+  const month = 10;  // 11월 = 10 (0-based)
+
+  const 집계결과 = 월별주간집계(year, month);
+  주간집계저장(year, month, 집계결과);
+  주간집계JSON저장(year, month, 집계결과);
+}
+
+/**
+ * 11월 전체 재생성 (일간 JSON + 주간집계)
+ */
+function 전체재생성_2025년11월() {
+  Logger.log('=== 2025년 11월 전체 재생성 시작 ===');
+
+  // 일간 JSON (1-based month)
+  특정월JSON생성(2025, 11);
+
+  // 주간집계 (0-based month)
+  const 집계결과 = 월별주간집계(2025, 10);
+  주간집계저장(2025, 10, 집계결과);
+  주간집계JSON저장(2025, 10, 집계결과);
+
+  Logger.log('=== 2025년 11월 전체 재생성 완료 ===');
+}
+
+/**
+ * 11월 월간 다이제스트 생성 (편의 함수)
+ */
+function 월간다이제스트생성_2025년11월() {
+  월간AI다이제스트생성('2025-11');
+}
+
+/**
+ * 11월 월간 데이터 수동 수집 (편의 함수)
+ * 기존 폴더에서 11월 데이터를 수집하여 monthly-data-2025-11.json 생성
+ */
+function 월간데이터수집_2025년11월() {
+  월간데이터수동수집('2025-11');
+}
+
+/**
+ * 특정 월의 데이터를 폴더에서 수동 수집
+ * @param {string} yearMonth - 년월 (yyyy-MM)
+ */
+function 월간데이터수동수집(yearMonth) {
+  Logger.log(`=== ${yearMonth} 월간 데이터 수동 수집 시작 ===\n`);
+
+  const [year, month] = yearMonth.split('-').map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+  const fileName = `monthly-data-${yearMonth}.json`;
+
+  // JSON 데이터 초기화
+  const jsonData = {
+    년월: yearMonth,
+    수집일시: new Date().toISOString(),
+    조원데이터: {}
+  };
+
+  // 각 조원별로 데이터 수집
+  for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
+    const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
+
+    if (!folderIds[0]) {
+      Logger.log(`⚠️ ${memberName}: 폴더 ID 없음, 건너뜀`);
+      continue;
+    }
+
+    Logger.log(`👤 ${memberName} 데이터 수집 중...`);
+
+    let 한달내용 = '';
+    let 출석일수 = 0;
+    let 파일수 = 0;
+
+    // 각 날짜별로 폴더 확인
+    for (let day = 1; day <= lastDay; day++) {
+      const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`;
+
+      for (const folderId of folderIds) {
+        try {
+          const memberFolder = DriveApp.getFolderById(folderId);
+          const subfolders = memberFolder.getFolders();
+
+          while (subfolders.hasNext()) {
+            const subfolder = subfolders.next();
+            const folderName = subfolder.getName();
+
+            // 날짜 형식 매칭
+            if (folderName.includes(dateStr) ||
+                folderName.includes(dateStr.replace(/-/g, '')) ||
+                folderName.includes(dateStr.replace(/-/g, '.'))) {
+
+              const files = subfolder.getFiles();
+              let dayContent = '';
+              let dayFileCount = 0;
+
+              while (files.hasNext()) {
+                const file = files.next();
+                const fileName = file.getName().toLowerCase();
+
+                // OFF 파일 제외, 텍스트/마크다운 파일만
+                if (fileName === 'off.md' || fileName === 'off.txt') continue;
+
+                if (fileName.endsWith('.md') || fileName.endsWith('.txt')) {
+                  try {
+                    const content = file.getBlob().getDataAsString('UTF-8');
+                    dayContent += `\n### ${file.getName()}\n${content}\n`;
+                    dayFileCount++;
+                  } catch (e) {
+                    dayFileCount++;
+                  }
+                } else {
+                  dayFileCount++;
+                }
+              }
+
+              if (dayFileCount > 0) {
+                한달내용 += `\n[${dateStr}]\n${dayContent}\n`;
+                출석일수++;
+                파일수 += dayFileCount;
+              }
+              break;
+            }
+          }
+        } catch (e) {
+          // 폴더 접근 오류 무시
+        }
+      }
+    }
+
+    if (출석일수 > 0) {
+      jsonData.조원데이터[memberName] = {
+        한달내용,
+        출석일수,
+        파일수
+      };
+      Logger.log(`  ✅ ${출석일수}일 출석, ${파일수}개 파일`);
+    } else {
+      Logger.log(`  ⚠️ 데이터 없음`);
+    }
+  }
+
+  // 기존 파일 삭제
+  const existingFiles = folder.getFilesByName(fileName);
+  while (existingFiles.hasNext()) {
+    existingFiles.next().setTrashed(true);
+  }
+
+  // 새 파일 저장
+  const newFile = folder.createFile(fileName, JSON.stringify(jsonData, null, 2), MimeType.PLAIN_TEXT);
+  newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  Logger.log(`\n✅ 월간 데이터 수집 완료: ${fileName}`);
+  Logger.log(`   ${Object.keys(jsonData.조원데이터).length}명 데이터 저장`);
+}
+
+/**
+ * 특정 월의 JSON 파일 생성
+ * @param {number} year - 연도 (예: 2025)
+ * @param {number} month - 월 (1-12)
+ */
+function 특정월JSON생성(year, month) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const recordSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+  if (!recordSheet) {
+    Logger.log('제출기록 시트가 없습니다.');
+    return;
+  }
+
+  const records = recordSheet.getDataRange().getValues();
+  const jsonData = {};
+
+  // 대상 연월 문자열 생성
+  const targetYearMonth = `${year}-${String(month).padStart(2, '0')}`;
+
+  Logger.log(`JSON 생성: ${targetYearMonth} 데이터`);
+
+  // 조원별로 데이터 구조화
+  for (const memberName of Object.keys(CONFIG.MEMBERS)) {
+    jsonData[memberName] = {
+      출석: 0,
+      결석: 0,
+      오프: 0,
+      장기오프: 0,
+      경고: false,
+      벌칙: false,
+      기록: {},
+      주간통계: {}
+    };
+  }
+
+  // 기록 파싱
+  for (let i = 1; i < records.length; i++) {
+    const [timestamp, name, dateStr, fileCount, links, folderLink, status, weekNum, reason] = records[i];
+
+    if (!jsonData[name]) continue;
+
+    // 날짜 문자열 정규화
+    const dateFormatted = typeof dateStr === 'string'
+      ? dateStr
+      : Utilities.formatDate(new Date(dateStr), 'Asia/Seoul', 'yyyy-MM-dd');
+
+    // 대상 월 데이터만 필터링
+    if (!dateFormatted.startsWith(targetYearMonth)) {
+      continue;
+    }
+
+    const date = new Date(dateFormatted);
+    const day = date.getDate().toString();
+
+    // 날짜별 기록
+    jsonData[name].기록[day] = {
+      status: status,
+      link: folderLink || (links ? (links.split('\n')[0].split(': ')[1] || links) : ''),
+      fileCount: fileCount || 0,
+      reason: reason || ''
+    };
+
+    // 출석/결석/오프/장기오프 카운트
+    if (status === 'O') {
+      jsonData[name].출석++;
+    } else if (status === 'OFF') {
+      jsonData[name].오프++;
+    } else if (status === CONFIG.LONG_OFF_STATUS) {
+      jsonData[name].장기오프++;
+    } else {
+      jsonData[name].결석++;
+    }
+
+    // 주간 통계
+    const weekKey = `${weekNum}주차`;
+    if (!jsonData[name].주간통계[weekKey]) {
+      jsonData[name].주간통계[weekKey] = {
+        출석: 0,
+        결석: 0,
+        오프: 0,
+        장기오프: 0
+      };
+    }
+
+    if (status === 'O') {
+      jsonData[name].주간통계[weekKey].출석++;
+    } else if (status === 'OFF') {
+      jsonData[name].주간통계[weekKey].오프++;
+    } else if (status === CONFIG.LONG_OFF_STATUS) {
+      jsonData[name].주간통계[weekKey].장기오프++;
+    } else {
+      jsonData[name].주간통계[weekKey].결석++;
+    }
+  }
+
+  // 경고/벌칙 계산
+  for (const memberName of Object.keys(jsonData)) {
+    const member = jsonData[memberName];
+    if (member.결석 >= 3) member.경고 = true;
+    if (member.결석 >= 4) member.벌칙 = true;
+  }
+
+  // JSON 파일 저장
+  const jsonString = JSON.stringify(jsonData, null, 2);
+  const fileName = `attendance_summary_${targetYearMonth}.json`;
+
+  try {
+    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+    // 기존 파일 삭제
+    const existingFiles = folder.getFilesByName(fileName);
+    while (existingFiles.hasNext()) {
+      existingFiles.next().setTrashed(true);
+    }
+
+    // 새 파일 생성
+    const file = folder.createFile(fileName, jsonString, MimeType.PLAIN_TEXT);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
     Logger.log(`JSON 파일 생성 완료: ${file.getUrl()}`);
   } catch (error) {
     Logger.log(`JSON 파일 생성 오류: ${error.message}`);
@@ -3926,7 +4268,7 @@ function 월간AI분석실행(yearMonth) {
   const files = folder.getFilesByName(fileName);
   if (!files.hasNext()) {
     Logger.log(`❌ 수집된 데이터 파일이 없습니다: ${fileName}`);
-    Logger.log('먼저 월간데이터수집() 함수를 실행해주세요.');
+    Logger.log('일간 다이제스트가 먼저 생성되어야 월간 데이터가 누적됩니다.');
     return null;
   }
 
@@ -3974,8 +4316,8 @@ function 월간AI분석실행(yearMonth) {
 }
 
 /**
- * 월간 AI 다이제스트 생성 (전체 프로세스)
- * 1단계 + 2단계를 순차 실행하는 래퍼 함수
+ * 월간 AI 다이제스트 생성
+ * 누적된 데이터(월간데이터누적)를 사용하여 AI 분석 실행
  * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
  */
 function 월간AI다이제스트생성(yearMonth) {
@@ -3984,25 +4326,19 @@ function 월간AI다이제스트생성(yearMonth) {
   }
 
   Logger.log(`\n${'='.repeat(60)}`);
-  Logger.log(`📊 ${yearMonth} 월간 다이제스트 전체 생성 시작`);
+  Logger.log(`📊 ${yearMonth} 월간 다이제스트 생성 시작`);
   Logger.log('='.repeat(60));
 
-  // 1단계: 데이터 수집
-  const 조원데이터 = 월간데이터수집(yearMonth);
-  if (!조원데이터) {
-    Logger.log('\n❌ 1단계 실패: 데이터 수집 불가');
-    return null;
-  }
-
-  // 2단계: AI 분석
+  // 누적된 데이터로 AI 분석 실행
   const 분석결과 = 월간AI분석실행(yearMonth);
   if (!분석결과) {
-    Logger.log('\n❌ 2단계 실패: AI 분석 불가');
+    Logger.log('\n❌ 월간 다이제스트 생성 실패');
+    Logger.log('일간 다이제스트가 먼저 생성되어 데이터가 누적되어야 합니다.');
     return null;
   }
 
   Logger.log(`\n${'='.repeat(60)}`);
-  Logger.log(`✅ 월간 다이제스트 전체 생성 완료`);
+  Logger.log(`✅ 월간 다이제스트 생성 완료`);
   Logger.log('='.repeat(60));
 
   return 분석결과;
@@ -4164,6 +4500,39 @@ function 월간원본수집(yearMonth) {
 }
 
 /**
+ * 사용 가능한 Gemini 모델 목록 확인
+ */
+function Gemini모델목록확인() {
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) {
+    Logger.log('❌ GEMINI_API_KEY가 설정되지 않았습니다.');
+    return;
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+
+  try {
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const result = JSON.parse(response.getContentText());
+
+    if (result.error) {
+      Logger.log('❌ 오류: ' + JSON.stringify(result.error));
+      return;
+    }
+
+    Logger.log('=== 사용 가능한 모델 목록 ===\n');
+    result.models.forEach(model => {
+      Logger.log(`📌 ${model.name}`);
+      Logger.log(`   - 표시명: ${model.displayName}`);
+      Logger.log(`   - 지원 메서드: ${model.supportedGenerationMethods?.join(', ')}`);
+      Logger.log('');
+    });
+  } catch (e) {
+    Logger.log('❌ API 호출 오류: ' + e.message);
+  }
+}
+
+/**
  * AI로 조원의 한 달 학습 내용 분석
  */
 function AI월간분석(memberName, 한달내용, 출석일수, 파일수, apiKey) {
@@ -4199,7 +4568,7 @@ ${한달내용}
 
 분석은 간결하고 명확하게 작성해주세요.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const payload = {
       contents: [{
@@ -4612,13 +4981,32 @@ function 파일내용수집(memberName, folderId, dateStr) {
         }
       }
 
-      // PDF (파일명만 - OCR은 별도 구현 필요)
+      // PDF (OCR로 텍스트 추출)
       else if (mimeType === MimeType.PDF) {
-        전체내용 += `[PDF 문서: ${fileName}]\n\n`;
-        파일목록.push({
-          이름: fileName,
-          타입: 'PDF'
-        });
+        try {
+          Logger.log(`  PDF OCR 시작: ${fileName}`);
+          const pdfContent = PDF텍스트추출(file);
+
+          if (pdfContent && pdfContent.trim().length > 0) {
+            전체내용 += `[PDF 문서: ${fileName}]\n\n${pdfContent}\n\n` + '='.repeat(50) + '\n\n';
+            Logger.log(`  PDF OCR 성공: ${fileName} (${pdfContent.length}자)`);
+          } else {
+            전체내용 += `[PDF 문서: ${fileName}] (텍스트 추출 실패 또는 이미지 PDF)\n\n`;
+            Logger.log(`  PDF OCR 실패 또는 빈 내용: ${fileName}`);
+          }
+
+          파일목록.push({
+            이름: fileName,
+            타입: 'PDF'
+          });
+        } catch (e) {
+          Logger.log(`  PDF 처리 실패: ${fileName} - ${e.message}`);
+          전체내용 += `[PDF 문서: ${fileName}] (처리 실패)\n\n`;
+          파일목록.push({
+            이름: fileName,
+            타입: 'PDF'
+          });
+        }
       }
 
       // 이미지
@@ -5213,5 +5601,124 @@ function AI저장폴더확인() {
   } catch (e) {
     Logger.log(`❌ 오류 발생: ${e.message}`);
     Logger.log(e.stack);
+  }
+}
+
+/**
+ * 🆕 PDF 텍스트 추출 함수
+ * Google Drive OCR을 사용하여 PDF에서 텍스트 추출
+ * @param {File} pdfFile - Google Drive PDF 파일 객체
+ * @returns {string} 추출된 텍스트 (실패 시 빈 문자열)
+ */
+function PDF텍스트추출(pdfFile) {
+  let tempDocId = null;
+
+  try {
+    const blob = pdfFile.getBlob();
+    const fileName = pdfFile.getName().replace(/\.pdf$/i, '_OCR_TEMP');
+
+    // Google Drive API v3를 사용하여 PDF를 Google Docs로 변환 (OCR 적용)
+    const boundary = '-------314159265358979323846';
+    const delimiter = "\r\n--" + boundary + "\r\n";
+    const closeDelimiter = "\r\n--" + boundary + "--";
+
+    const metadata = {
+      name: fileName,
+      mimeType: 'application/vnd.google-apps.document'
+    };
+
+    const requestBody =
+      delimiter +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify(metadata) +
+      delimiter +
+      'Content-Type: application/pdf\r\n' +
+      'Content-Transfer-Encoding: base64\r\n\r\n' +
+      Utilities.base64Encode(blob.getBytes()) +
+      closeDelimiter;
+
+    const response = UrlFetchApp.fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&ocrLanguage=ko',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + ScriptApp.getOAuthToken(),
+          'Content-Type': 'multipart/related; boundary=' + boundary
+        },
+        payload: requestBody,
+        muteHttpExceptions: true
+      }
+    );
+
+    const result = JSON.parse(response.getContentText());
+
+    if (result.error) {
+      Logger.log(`PDF 업로드 오류: ${result.error.message}`);
+      return '';
+    }
+
+    tempDocId = result.id;
+
+    // 변환된 Google Docs에서 텍스트 추출
+    const doc = DocumentApp.openById(tempDocId);
+    const text = doc.getBody().getText();
+
+    // 임시 파일 삭제
+    DriveApp.getFileById(tempDocId).setTrashed(true);
+    tempDocId = null;
+
+    return text.trim();
+
+  } catch (e) {
+    Logger.log(`PDF OCR 오류: ${e.message}`);
+
+    // 임시 파일이 생성되었다면 삭제
+    if (tempDocId) {
+      try {
+        DriveApp.getFileById(tempDocId).setTrashed(true);
+      } catch (deleteError) {
+        Logger.log(`임시 파일 삭제 실패: ${deleteError.message}`);
+      }
+    }
+
+    return '';
+  }
+}
+
+/**
+ * 🧪 PDF OCR 테스트 함수
+ * 특정 PDF 파일의 텍스트 추출을 테스트
+ */
+function PDF_OCR_테스트() {
+  // 테스트할 PDF 파일 ID를 입력하세요
+  const 테스트PDF_ID = '';  // ← 여기에 PDF 파일 ID 입력
+
+  if (!테스트PDF_ID) {
+    Logger.log('❌ 테스트할 PDF 파일 ID를 입력해주세요.');
+    Logger.log('사용법: 테스트PDF_ID 변수에 PDF 파일 ID를 입력');
+    return;
+  }
+
+  try {
+    const file = DriveApp.getFileById(테스트PDF_ID);
+    Logger.log(`=== PDF OCR 테스트 ===`);
+    Logger.log(`파일명: ${file.getName()}`);
+    Logger.log(`\n텍스트 추출 중...`);
+
+    const text = PDF텍스트추출(file);
+
+    if (text) {
+      Logger.log(`\n✅ 추출 성공! (${text.length}자)`);
+      Logger.log(`\n--- 추출된 텍스트 ---`);
+      Logger.log(text.substring(0, 2000));  // 처음 2000자만 출력
+      if (text.length > 2000) {
+        Logger.log(`\n... (${text.length - 2000}자 더 있음)`);
+      }
+    } else {
+      Logger.log(`\n❌ 텍스트 추출 실패 (이미지 PDF이거나 빈 문서)`);
+    }
+
+  } catch (e) {
+    Logger.log(`❌ 오류: ${e.message}`);
   }
 }
