@@ -4568,7 +4568,7 @@ ${한달내용}
 
 분석은 간결하고 명확하게 작성해주세요.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const payload = {
       contents: [{
