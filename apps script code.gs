@@ -539,8 +539,12 @@ function 마감시간체크() {
     const [year, month] = yearMonth.split('-').map(Number);
     Logger.log(`이전 달 JSON 재생성: ${year}년 ${month}월`);
     특정월JSON생성(year, month);           // 1-based month
+
     Logger.log(`이전 달 주간집계 재생성: ${year}년 ${month}월`);
-    월별주간집계(year, month - 1);          // 0-based month (1월=0, 12월=11)
+    const zeroBasedMonth = month - 1;      // 0-based month (1월=0, 12월=11)
+    const 집계결과 = 월별주간집계(year, zeroBasedMonth);
+    주간집계저장(year, zeroBasedMonth, 집계결과);
+    주간집계JSON저장(year, zeroBasedMonth, 집계결과);
   }
 }
 
@@ -1053,7 +1057,12 @@ function JSON재생성_2025년11월() {
  * 주의: 월별주간집계는 0-based month 사용 (11월 = 10)
  */
 function 주간집계재생성_2025년11월() {
-  월별주간집계(2025, 10);  // 11월 = 10 (0-based)
+  const year = 2025;
+  const month = 10;  // 11월 = 10 (0-based)
+
+  const 집계결과 = 월별주간집계(year, month);
+  주간집계저장(year, month, 집계결과);
+  주간집계JSON저장(year, month, 집계결과);
 }
 
 /**
@@ -1061,8 +1070,15 @@ function 주간집계재생성_2025년11월() {
  */
 function 전체재생성_2025년11월() {
   Logger.log('=== 2025년 11월 전체 재생성 시작 ===');
-  특정월JSON생성(2025, 11);       // 1-based (11월 = 11)
-  월별주간집계(2025, 10);          // 0-based (11월 = 10)
+
+  // 일간 JSON (1-based month)
+  특정월JSON생성(2025, 11);
+
+  // 주간집계 (0-based month)
+  const 집계결과 = 월별주간집계(2025, 10);
+  주간집계저장(2025, 10, 집계결과);
+  주간집계JSON저장(2025, 10, 집계결과);
+
   Logger.log('=== 2025년 11월 전체 재생성 완료 ===');
 }
 
