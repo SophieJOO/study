@@ -443,7 +443,7 @@
         <div class="legend">
             <div class="legend-item">
                 <div class="legend-box attended">✓</div>
-                <span>인증</span>
+                <span id="legendAttended">출석</span>
             </div>
             <div class="legend-item">
                 <div class="legend-box long-off">🏝️</div>
@@ -451,7 +451,7 @@
             </div>
             <div class="legend-item">
                 <div class="legend-box absent">✗</div>
-                <span>미인증</span>
+                <span id="legendAbsent">결석</span>
             </div>
             <div class="legend-item">
                 <div class="legend-box future">-</div>
@@ -571,6 +571,22 @@
                 const yearMonth = displayYear + '-' + String(displayMonth + 1).padStart(2, '0');
                 monthlyDigestBtn.href = `${WEB_APP_URL}?date=MONTHLY-${yearMonth}`;
             }
+        }
+
+        // 용어 가져오기 함수 (12월부터 인증/미인증, 11월 이전 출석/결석)
+        function getTerms(y, m) {
+            if (isOffAbolished(y, m)) {
+                return { attended: '인증', absent: '미인증' };
+            } else {
+                return { attended: '출석', absent: '결석' };
+            }
+        }
+
+        // 범례 텍스트 업데이트 함수
+        function updateLegendText() {
+            const terms = getTerms(displayYear, displayMonth);
+            document.getElementById('legendAttended').textContent = terms.attended;
+            document.getElementById('legendAbsent').textContent = terms.absent;
         }
 
         // ===== 유틸리티 함수 =====
@@ -734,6 +750,7 @@
             updateMonthDisplay();
             updateNavigationButtons();
             updateMonthlyDigestUrl();
+            updateLegendText();
 
             // 데이터 다시 로드
             document.getElementById('loadingIndicator').style.display = 'block';
@@ -798,8 +815,9 @@
             }
 
             // 통계 헤더
+            const terms = getTerms(displayYear, displayMonth);
             const totalAttendedHeader = document.createElement('th');
-            totalAttendedHeader.textContent = '인증';
+            totalAttendedHeader.textContent = terms.attended;
             totalAttendedHeader.style.backgroundColor = '#66BB6A';
             headerRow.appendChild(totalAttendedHeader);
 
@@ -817,7 +835,7 @@
             headerRow.appendChild(totalLongOffHeader);
 
             const totalAbsentHeader = document.createElement('th');
-            totalAbsentHeader.textContent = '미인증';
+            totalAbsentHeader.textContent = terms.absent;
             totalAbsentHeader.style.backgroundColor = '#EF5350';
             headerRow.appendChild(totalAbsentHeader);
         }
@@ -1071,11 +1089,14 @@
                     ? ''
                     : `오프: <strong class="off-text">${calculatedOff}회</strong> / `;
 
+                // 월에 따른 용어 사용
+                const cardTerms = getTerms(displayYear, displayMonth);
+
                 memberCard.innerHTML = `
                     <strong style="font-size: 16px;">${escapeHtml(memberName)}</strong><br>
-                    인증: <strong style="color: #2e7d32;">${calculatedAttendance}회</strong> / ${offDisplayText}
+                    ${cardTerms.attended}: <strong style="color: #2e7d32;">${calculatedAttendance}회</strong> / ${offDisplayText}
                     장기오프: <strong class="long-off-text">${calculatedLongOff}회</strong> /
-                    미인증: <strong style="color: #c62828;">${calculatedAbsence}회</strong><br>
+                    ${cardTerms.absent}: <strong style="color: #c62828;">${calculatedAbsence}회</strong><br>
                     ${statusText}${weekOffText}${offExcessText}
                 `;
                 memberSummaryDiv.appendChild(memberCard);
@@ -1150,6 +1171,7 @@
             // 월 표시 및 네비게이션 버튼 초기화
             updateMonthDisplay();
             updateNavigationButtons();
+            updateLegendText();
             document.getElementById('totalDays').textContent = currentDay;
 
             renderDateHeaders();
