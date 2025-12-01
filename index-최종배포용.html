@@ -544,10 +544,9 @@
                           String(yesterday.getMonth() + 1).padStart(2, '0') + '-' +
                           String(yesterday.getDate()).padStart(2, '0');
 
-            // 월간 다이제스트: 이번 달 계산
-            const now = new Date();
-            const yearMonth = now.getFullYear() + '-' +
-                            String(now.getMonth() + 1).padStart(2, '0');
+            // 월간 다이제스트: 표시된 달 사용 (displayYear, displayMonth)
+            const yearMonth = displayYear + '-' +
+                            String(displayMonth + 1).padStart(2, '0');
 
             // 웹앱 URL + 날짜 파라미터
             const dailyDigestUrl = `${WEB_APP_URL}?date=${dateStr}`;
@@ -556,6 +555,15 @@
             aiDigestBtn.href = dailyDigestUrl;
             monthlyDigestBtn.href = monthlyDigestUrl;
         });
+
+        // 월간 다이제스트 URL 업데이트 함수
+        function updateMonthlyDigestUrl() {
+            const monthlyDigestBtn = document.getElementById('monthlyDigestBtn');
+            if (monthlyDigestBtn) {
+                const yearMonth = displayYear + '-' + String(displayMonth + 1).padStart(2, '0');
+                monthlyDigestBtn.href = `${WEB_APP_URL}?date=MONTHLY-${yearMonth}`;
+            }
+        }
 
         // ===== 유틸리티 함수 =====
         function formatDate(date) {
@@ -717,6 +725,7 @@
             // UI 업데이트
             updateMonthDisplay();
             updateNavigationButtons();
+            updateMonthlyDigestUrl();
 
             // 데이터 다시 로드
             document.getElementById('loadingIndicator').style.display = 'block';
