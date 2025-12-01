@@ -2793,9 +2793,20 @@ function 관리자수정처리() {
       Logger.log(`📁 ${year}년 ${month}월 JSON 재생성 중...`);
       try {
         특정월JSON생성(year, month);
-        Logger.log(`  ✅ ${year}년 ${month}월 JSON 재생성 완료`);
+        Logger.log(`  ✅ ${year}년 ${month}월 일간 JSON 재생성 완료`);
       } catch (e) {
-        Logger.log(`  ❌ ${year}년 ${month}월 JSON 재생성 실패: ${e.message}`);
+        Logger.log(`  ❌ ${year}년 ${month}월 일간 JSON 재생성 실패: ${e.message}`);
+      }
+
+      // 주간집계도 재생성 (월별주간집계는 0-based month 사용)
+      try {
+        const zeroBasedMonth = month - 1;
+        const 집계결과 = 월별주간집계(year, zeroBasedMonth);
+        주간집계저장(year, zeroBasedMonth, 집계결과);
+        주간집계JSON저장(year, zeroBasedMonth, 집계결과);
+        Logger.log(`  ✅ ${year}년 ${month}월 주간집계 재생성 완료`);
+      } catch (e) {
+        Logger.log(`  ❌ ${year}년 ${month}월 주간집계 재생성 실패: ${e.message}`);
       }
     }
   }
