@@ -510,6 +510,14 @@
         let displayYear = todayYear;
         let displayMonth = todayMonth;
 
+        // 오프 제도 폐지 여부 확인 (2025년 12월부터 폐지)
+        function isOffAbolished(y, m) {
+            // m은 0-based (11 = 12월)
+            if (y > 2025) return true;
+            if (y === 2025 && m >= 11) return true;  // 2025년 12월 이후
+            return false;
+        }
+
         // 동적으로 계산되는 변수
         function getDaysInMonth(y, m) {
             return new Date(y, m + 1, 0).getDate();
@@ -795,10 +803,13 @@
             totalAttendedHeader.style.backgroundColor = '#66BB6A';
             headerRow.appendChild(totalAttendedHeader);
 
-            const totalOffHeader = document.createElement('th');
-            totalOffHeader.textContent = '오프';
-            totalOffHeader.style.backgroundColor = '#FDD835';
-            headerRow.appendChild(totalOffHeader);
+            // 12월부터 오프 열 숨김
+            if (!isOffAbolished(displayYear, displayMonth)) {
+                const totalOffHeader = document.createElement('th');
+                totalOffHeader.textContent = '오프';
+                totalOffHeader.style.backgroundColor = '#FDD835';
+                headerRow.appendChild(totalOffHeader);
+            }
 
             const totalLongOffHeader = document.createElement('th');
             totalLongOffHeader.textContent = '장기오프';
@@ -925,19 +936,28 @@
                             }
                             cell.classList.add('attended');
                         } else if (dayStatus.status === 'OFF') {
-                            const dateKey = `${month}-${i}-false`;
-                            const isConvertedToAbsent = convertToAbsent.has(dateKey);
-
-                            if (isConvertedToAbsent) {
+                            // 12월부터 오프 폐지 - 결석으로 처리
+                            if (isOffAbolished(displayYear, displayMonth)) {
                                 calculatedAbsence++;
                                 cell.textContent = '✗';
                                 cell.classList.add('absent');
-                                cell.title = '결석 (이번 주 오프 한도 초과)';
+                                cell.title = '결석';
                             } else {
-                                calculatedOff++;
-                                cell.textContent = '🏖️';
-                                cell.classList.add('off');
-                                cell.title = '오프';
+                                // 11월 이전 - 기존 오프 로직
+                                const dateKey = `${month}-${i}-false`;
+                                const isConvertedToAbsent = convertToAbsent.has(dateKey);
+
+                                if (isConvertedToAbsent) {
+                                    calculatedAbsence++;
+                                    cell.textContent = '✗';
+                                    cell.classList.add('absent');
+                                    cell.title = '결석 (이번 주 오프 한도 초과)';
+                                } else {
+                                    calculatedOff++;
+                                    cell.textContent = '🏖️';
+                                    cell.classList.add('off');
+                                    cell.title = '오프';
+                                }
                             }
                         } else if (dayStatus.status === 'LONG_OFF') {
                             calculatedLongOff++;
@@ -980,10 +1000,13 @@
                 totalAttendedCell.style.fontWeight = 'bold';
                 totalAttendedCell.style.backgroundColor = '#e8f5e9';
 
-                const totalOffCell = row.insertCell();
-                totalOffCell.textContent = calculatedOff;
-                totalOffCell.style.fontWeight = 'bold';
-                totalOffCell.style.backgroundColor = '#fff9c4';
+                // 12월부터 오프 열 숨김
+                if (!isOffAbolished(displayYear, displayMonth)) {
+                    const totalOffCell = row.insertCell();
+                    totalOffCell.textContent = calculatedOff;
+                    totalOffCell.style.fontWeight = 'bold';
+                    totalOffCell.style.backgroundColor = '#fff9c4';
+                }
 
                 const totalLongOffCell = row.insertCell();
                 totalLongOffCell.textContent = calculatedLongOff;
@@ -1018,31 +1041,39 @@
                     statusText = `<span style="color: #4CAF50;">✅ 정상</span>`;
                 }
 
+                // 12월부터 오프 제도 폐지 - 주간 오프 경고도 숨김
                 let weekOffText = '';
-                if (thisWeekOff > 3) {
-                    const convertedDates = thisWeekOffDates.slice(-excessOffCount)
-                        .map(d => `${d.month + 1}/${d.day}`)
-                        .join(', ');
-                    weekOffText = `<br><span style="color: #f44336; font-weight: bold;">🚨 이번 주 오프: ${thisWeekOff}/3회 (한도 초과)</span>`;
-                    weekOffText += `<br><span style="color: #f44336; font-size: 13px;">→ 결석 처리: ${convertedDates} (${excessOffCount}회)</span>`;
-                } else if (thisWeekOff >= 3) {
-                    weekOffText = `<br><span style="color: #f57f17; font-weight: bold;">⚠️ 이번 주 오프: ${thisWeekOff}/3회 (한도 도달)</span>`;
-                } else if (thisWeekOff >= 2) {
-                    weekOffText = `<br><span style="color: #ff9800;">이번 주 오프: ${thisWeekOff}/3회</span>`;
-                } else if (thisWeekOff >= 1) {
-                    weekOffText = `<br><span style="color: #757575;">이번 주 오프: ${thisWeekOff}/3회</span>`;
+                if (!isOffAbolished(displayYear, displayMonth)) {
+                    if (thisWeekOff > 3) {
+                        const convertedDates = thisWeekOffDates.slice(-excessOffCount)
+                            .map(d => `${d.month + 1}/${d.day}`)
+                            .join(', ');
+                        weekOffText = `<br><span style="color: #f44336; font-weight: bold;">🚨 이번 주 오프: ${thisWeekOff}/3회 (한도 초과)</span>`;
+                        weekOffText += `<br><span style="color: #f44336; font-size: 13px;">→ 결석 처리: ${convertedDates} (${excessOffCount}회)</span>`;
+                    } else if (thisWeekOff >= 3) {
+                        weekOffText = `<br><span style="color: #f57f17; font-weight: bold;">⚠️ 이번 주 오프: ${thisWeekOff}/3회 (한도 도달)</span>`;
+                    } else if (thisWeekOff >= 2) {
+                        weekOffText = `<br><span style="color: #ff9800;">이번 주 오프: ${thisWeekOff}/3회</span>`;
+                    } else if (thisWeekOff >= 1) {
+                        weekOffText = `<br><span style="color: #757575;">이번 주 오프: ${thisWeekOff}/3회</span>`;
+                    }
                 }
 
+                // 12월부터 오프 제도 폐지 - 오프 초과 결석도 숨김
                 let offExcessText = '';
-                if (offExcessAbsenceDates.length > 0) {
+                if (!isOffAbolished(displayYear, displayMonth) && offExcessAbsenceDates.length > 0) {
                     const datesText = offExcessAbsenceDates.map(d => d + '일').join(', ');
                     offExcessText = `<br><span style="color: #f44336; font-size: 13px;">🚨 오프 초과 결석: ${datesText}</span>`;
                 }
 
+                // 12월부터 오프 표시 제외
+                const offDisplayText = isOffAbolished(displayYear, displayMonth)
+                    ? ''
+                    : `오프: <strong class="off-text">${calculatedOff}회</strong> / `;
+
                 memberCard.innerHTML = `
                     <strong style="font-size: 16px;">${escapeHtml(memberName)}</strong><br>
-                    출석: <strong style="color: #2e7d32;">${calculatedAttendance}회</strong> /
-                    오프: <strong class="off-text">${calculatedOff}회</strong> /
+                    출석: <strong style="color: #2e7d32;">${calculatedAttendance}회</strong> / ${offDisplayText}
                     장기오프: <strong class="long-off-text">${calculatedLongOff}회</strong> /
                     결석: <strong style="color: #c62828;">${calculatedAbsence}회</strong><br>
                     ${statusText}${weekOffText}${offExcessText}
