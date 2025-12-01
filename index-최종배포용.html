@@ -443,7 +443,7 @@
         <div class="legend">
             <div class="legend-item">
                 <div class="legend-box attended">✓</div>
-                <span>출석</span>
+                <span>인증</span>
             </div>
             <div class="legend-item">
                 <div class="legend-box long-off">🏝️</div>
@@ -451,7 +451,7 @@
             </div>
             <div class="legend-item">
                 <div class="legend-box absent">✗</div>
-                <span>결석</span>
+                <span>미인증</span>
             </div>
             <div class="legend-item">
                 <div class="legend-box future">-</div>
@@ -799,7 +799,7 @@
 
             // 통계 헤더
             const totalAttendedHeader = document.createElement('th');
-            totalAttendedHeader.textContent = '출석';
+            totalAttendedHeader.textContent = '인증';
             totalAttendedHeader.style.backgroundColor = '#66BB6A';
             headerRow.appendChild(totalAttendedHeader);
 
@@ -817,7 +817,7 @@
             headerRow.appendChild(totalLongOffHeader);
 
             const totalAbsentHeader = document.createElement('th');
-            totalAbsentHeader.textContent = '결석';
+            totalAbsentHeader.textContent = '미인증';
             totalAbsentHeader.style.backgroundColor = '#EF5350';
             headerRow.appendChild(totalAbsentHeader);
         }
@@ -1073,9 +1073,9 @@
 
                 memberCard.innerHTML = `
                     <strong style="font-size: 16px;">${escapeHtml(memberName)}</strong><br>
-                    출석: <strong style="color: #2e7d32;">${calculatedAttendance}회</strong> / ${offDisplayText}
+                    인증: <strong style="color: #2e7d32;">${calculatedAttendance}회</strong> / ${offDisplayText}
                     장기오프: <strong class="long-off-text">${calculatedLongOff}회</strong> /
-                    결석: <strong style="color: #c62828;">${calculatedAbsence}회</strong><br>
+                    미인증: <strong style="color: #c62828;">${calculatedAbsence}회</strong><br>
                     ${statusText}${weekOffText}${offExcessText}
                 `;
                 memberSummaryDiv.appendChild(memberCard);
