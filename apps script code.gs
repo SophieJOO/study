@@ -4111,38 +4111,6 @@ function 월간데이터누적(조원데이터, dateStr) {
 }
 
 /**
- * 🆕 월간 데이터 수집 (JSON 파일에서 읽기)
- * @param {string} yearMonth - 년월 (yyyy-MM)
- * @returns {Object|null} 조원데이터 객체 또는 null
- */
-function 월간데이터수집(yearMonth) {
-  if (!yearMonth) {
-    yearMonth = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
-  }
-
-  Logger.log(`\n=== [1단계] ${yearMonth} 월간 데이터 수집 ===\n`);
-
-  const fileName = `monthly-data-${yearMonth}.json`;
-  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
-
-  const files = folder.getFilesByName(fileName);
-  if (!files.hasNext()) {
-    Logger.log(`❌ 수집된 데이터 파일이 없습니다: ${fileName}`);
-    Logger.log('일간 다이제스트가 먼저 생성되어야 월간 데이터가 누적됩니다.');
-    return null;
-  }
-
-  const file = files.next();
-  const jsonData = JSON.parse(file.getBlob().getDataAsString('UTF-8'));
-  const 조원데이터 = jsonData.조원데이터;
-
-  Logger.log(`📁 데이터 파일 로드 완료: ${Object.keys(조원데이터).length}명`);
-  Logger.log(`📅 수집 기간: ${yearMonth}`);
-
-  return 조원데이터;
-}
-
-/**
  * 🆕 2단계: 월간 AI 분석 실행 (시간 초과 방지)
  * 저장된 데이터를 읽어서 AI 분석 후 HTML 생성
  * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
@@ -4217,8 +4185,8 @@ function 월간AI분석실행(yearMonth) {
 }
 
 /**
- * 월간 AI 다이제스트 생성 (전체 프로세스)
- * 1단계 + 2단계를 순차 실행하는 래퍼 함수
+ * 월간 AI 다이제스트 생성
+ * 누적된 데이터(월간데이터누적)를 사용하여 AI 분석 실행
  * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
  */
 function 월간AI다이제스트생성(yearMonth) {
@@ -4227,25 +4195,19 @@ function 월간AI다이제스트생성(yearMonth) {
   }
 
   Logger.log(`\n${'='.repeat(60)}`);
-  Logger.log(`📊 ${yearMonth} 월간 다이제스트 전체 생성 시작`);
+  Logger.log(`📊 ${yearMonth} 월간 다이제스트 생성 시작`);
   Logger.log('='.repeat(60));
 
-  // 1단계: 데이터 수집
-  const 조원데이터 = 월간데이터수집(yearMonth);
-  if (!조원데이터) {
-    Logger.log('\n❌ 1단계 실패: 데이터 수집 불가');
-    return null;
-  }
-
-  // 2단계: AI 분석
+  // 누적된 데이터로 AI 분석 실행
   const 분석결과 = 월간AI분석실행(yearMonth);
   if (!분석결과) {
-    Logger.log('\n❌ 2단계 실패: AI 분석 불가');
+    Logger.log('\n❌ 월간 다이제스트 생성 실패');
+    Logger.log('일간 다이제스트가 먼저 생성되어 데이터가 누적되어야 합니다.');
     return null;
   }
 
   Logger.log(`\n${'='.repeat(60)}`);
-  Logger.log(`✅ 월간 다이제스트 전체 생성 완료`);
+  Logger.log(`✅ 월간 다이제스트 생성 완료`);
   Logger.log('='.repeat(60));
 
   return 분석결과;
