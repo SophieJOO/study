@@ -1090,6 +1090,130 @@ function 월간다이제스트생성_2025년11월() {
 }
 
 /**
+ * 11월 월간 데이터 수동 수집 (편의 함수)
+ * 기존 폴더에서 11월 데이터를 수집하여 monthly-data-2025-11.json 생성
+ */
+function 월간데이터수집_2025년11월() {
+  월간데이터수동수집('2025-11');
+}
+
+/**
+ * 특정 월의 데이터를 폴더에서 수동 수집
+ * @param {string} yearMonth - 년월 (yyyy-MM)
+ */
+function 월간데이터수동수집(yearMonth) {
+  Logger.log(`=== ${yearMonth} 월간 데이터 수동 수집 시작 ===\n`);
+
+  const [year, month] = yearMonth.split('-').map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+  const fileName = `monthly-data-${yearMonth}.json`;
+
+  // JSON 데이터 초기화
+  const jsonData = {
+    년월: yearMonth,
+    수집일시: new Date().toISOString(),
+    조원데이터: {}
+  };
+
+  // 각 조원별로 데이터 수집
+  for (const [memberName, folderIdOrArray] of Object.entries(CONFIG.MEMBERS)) {
+    const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
+
+    if (!folderIds[0]) {
+      Logger.log(`⚠️ ${memberName}: 폴더 ID 없음, 건너뜀`);
+      continue;
+    }
+
+    Logger.log(`👤 ${memberName} 데이터 수집 중...`);
+
+    let 한달내용 = '';
+    let 출석일수 = 0;
+    let 파일수 = 0;
+
+    // 각 날짜별로 폴더 확인
+    for (let day = 1; day <= lastDay; day++) {
+      const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`;
+
+      for (const folderId of folderIds) {
+        try {
+          const memberFolder = DriveApp.getFolderById(folderId);
+          const subfolders = memberFolder.getFolders();
+
+          while (subfolders.hasNext()) {
+            const subfolder = subfolders.next();
+            const folderName = subfolder.getName();
+
+            // 날짜 형식 매칭
+            if (folderName.includes(dateStr) ||
+                folderName.includes(dateStr.replace(/-/g, '')) ||
+                folderName.includes(dateStr.replace(/-/g, '.'))) {
+
+              const files = subfolder.getFiles();
+              let dayContent = '';
+              let dayFileCount = 0;
+
+              while (files.hasNext()) {
+                const file = files.next();
+                const fileName = file.getName().toLowerCase();
+
+                // OFF 파일 제외, 텍스트/마크다운 파일만
+                if (fileName === 'off.md' || fileName === 'off.txt') continue;
+
+                if (fileName.endsWith('.md') || fileName.endsWith('.txt')) {
+                  try {
+                    const content = file.getBlob().getDataAsString('UTF-8');
+                    dayContent += `\n### ${file.getName()}\n${content}\n`;
+                    dayFileCount++;
+                  } catch (e) {
+                    dayFileCount++;
+                  }
+                } else {
+                  dayFileCount++;
+                }
+              }
+
+              if (dayFileCount > 0) {
+                한달내용 += `\n[${dateStr}]\n${dayContent}\n`;
+                출석일수++;
+                파일수 += dayFileCount;
+              }
+              break;
+            }
+          }
+        } catch (e) {
+          // 폴더 접근 오류 무시
+        }
+      }
+    }
+
+    if (출석일수 > 0) {
+      jsonData.조원데이터[memberName] = {
+        한달내용,
+        출석일수,
+        파일수
+      };
+      Logger.log(`  ✅ ${출석일수}일 출석, ${파일수}개 파일`);
+    } else {
+      Logger.log(`  ⚠️ 데이터 없음`);
+    }
+  }
+
+  // 기존 파일 삭제
+  const existingFiles = folder.getFilesByName(fileName);
+  while (existingFiles.hasNext()) {
+    existingFiles.next().setTrashed(true);
+  }
+
+  // 새 파일 저장
+  const newFile = folder.createFile(fileName, JSON.stringify(jsonData, null, 2), MimeType.PLAIN_TEXT);
+  newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  Logger.log(`\n✅ 월간 데이터 수집 완료: ${fileName}`);
+  Logger.log(`   ${Object.keys(jsonData.조원데이터).length}명 데이터 저장`);
+}
+
+/**
  * 특정 월의 JSON 파일 생성
  * @param {number} year - 연도 (예: 2025)
  * @param {number} month - 월 (1-12)
