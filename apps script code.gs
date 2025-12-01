@@ -4111,6 +4111,38 @@ function 월간데이터누적(조원데이터, dateStr) {
 }
 
 /**
+ * 🆕 월간 데이터 수집 (JSON 파일에서 읽기)
+ * @param {string} yearMonth - 년월 (yyyy-MM)
+ * @returns {Object|null} 조원데이터 객체 또는 null
+ */
+function 월간데이터수집(yearMonth) {
+  if (!yearMonth) {
+    yearMonth = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
+  }
+
+  Logger.log(`\n=== [1단계] ${yearMonth} 월간 데이터 수집 ===\n`);
+
+  const fileName = `monthly-data-${yearMonth}.json`;
+  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+  const files = folder.getFilesByName(fileName);
+  if (!files.hasNext()) {
+    Logger.log(`❌ 수집된 데이터 파일이 없습니다: ${fileName}`);
+    Logger.log('일간 다이제스트가 먼저 생성되어야 월간 데이터가 누적됩니다.');
+    return null;
+  }
+
+  const file = files.next();
+  const jsonData = JSON.parse(file.getBlob().getDataAsString('UTF-8'));
+  const 조원데이터 = jsonData.조원데이터;
+
+  Logger.log(`📁 데이터 파일 로드 완료: ${Object.keys(조원데이터).length}명`);
+  Logger.log(`📅 수집 기간: ${yearMonth}`);
+
+  return 조원데이터;
+}
+
+/**
  * 🆕 2단계: 월간 AI 분석 실행 (시간 초과 방지)
  * 저장된 데이터를 읽어서 AI 분석 후 HTML 생성
  * @param {string} yearMonth - 년월 (yyyy-MM). 없으면 이번 달
