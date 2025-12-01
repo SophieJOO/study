@@ -2674,29 +2674,31 @@ function 최종스캔_특정날짜(targetDateStr) {
 
 /**
  * 🆕 관리자수정 시트 처리
+ * 수정된 월의 JSON을 자동으로 재생성
  */
 function 관리자수정처리() {
   Logger.log('');
   Logger.log('=== 관리자수정 처리 시작 ===');
-  
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const adminSheet = ss.getSheetByName(CONFIG.ADMIN_SHEET);
-  
+
   if (!adminSheet) {
     Logger.log(`⚠️ "${CONFIG.ADMIN_SHEET}" 시트가 없습니다. 건너뜀.`);
-    return;
+    return { processedCount: 0, affectedMonths: [] };
   }
-  
+
   const data = adminSheet.getDataRange().getValues();
-  
+
   if (data.length <= 1) {
     Logger.log('처리할 항목이 없습니다.');
-    return;
+    return { processedCount: 0, affectedMonths: [] };
   }
-  
+
   let processedCount = 0;
   const now = new Date();
-  
+  const affectedMonths = new Set(); // 수정된 월 추적
+
   // 첫 행(헤더) 제외하고 처리
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
@@ -2705,22 +2707,24 @@ function 관리자수정처리() {
     const status = row[CONFIG.ADMIN_COLUMNS.STATUS];
     const reason = row[CONFIG.ADMIN_COLUMNS.REASON] || '';
     const processed = row[CONFIG.ADMIN_COLUMNS.PROCESSED];
-    
+
     // 이미 처리된 항목은 건너뛰기
     if (processed === '완료' || processed === 'O' || processed === '✅') {
       continue;
     }
-    
+
     // 필수 필드 검증
     if (!name || !dateValue || !status) {
       Logger.log(`  ⚠️ ${i + 1}행: 필수 정보 누락 (이름: ${name}, 날짜: ${dateValue}, 상태: ${status})`);
       continue;
     }
-    
+
     // 날짜 포맷 변환
     let dateStr;
+    let dateObj;
     try {
       if (dateValue instanceof Date) {
+        dateObj = dateValue;
         dateStr = Utilities.formatDate(dateValue, 'Asia/Seoul', 'yyyy-MM-dd');
       } else {
         dateStr = String(dateValue).trim();
@@ -2728,18 +2732,20 @@ function 관리자수정처리() {
           Logger.log(`  ❌ ${i + 1}행: 날짜 형식 오류 (${dateStr}). YYYY-MM-DD 형식 사용 필요`);
           continue;
         }
+        const parts = dateStr.split('-');
+        dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
       }
     } catch (e) {
       Logger.log(`  ❌ ${i + 1}행: 날짜 변환 실패 (${dateValue})`);
       continue;
     }
-    
+
     // 조원 이름 검증
     if (!CONFIG.MEMBERS[name]) {
       Logger.log(`  ❌ ${i + 1}행: 알 수 없는 조원 (${name})`);
       continue;
     }
-    
+
     // 상태 값 검증 및 정규화
     let normalizedStatus = status.toString().toUpperCase().trim();
     if (normalizedStatus === 'O' || normalizedStatus === '출석') {
@@ -2754,27 +2760,49 @@ function 관리자수정처리() {
       Logger.log(`  ❌ ${i + 1}행: 알 수 없는 상태 (${status}). O/OFF/X/LONG_OFF 중 하나 사용`);
       continue;
     }
-    
+
     // 출석기록 추가/업데이트
     try {
       Logger.log(`  🔧 ${name} - ${dateStr} → ${normalizedStatus}${reason ? ' (' + reason + ')' : ''}`);
       출석기록추가(name, dateStr, [], normalizedStatus, reason);
-      
+
+      // 수정된 월 추적 (yyyy-MM 형식)
+      const yearMonth = Utilities.formatDate(dateObj, 'Asia/Seoul', 'yyyy-MM');
+      affectedMonths.add(yearMonth);
+
       // 처리완료 표시
       const rowIndex = i + 1;
       adminSheet.getRange(rowIndex, CONFIG.ADMIN_COLUMNS.PROCESSED + 1).setValue('완료');
       adminSheet.getRange(rowIndex, CONFIG.ADMIN_COLUMNS.PROCESSED_TIME + 1).setValue(now);
-      
+
       processedCount++;
     } catch (e) {
       Logger.log(`  ❌ ${i + 1}행: 처리 중 오류 - ${e.message}`);
     }
   }
-  
+
   Logger.log(`✅ 관리자수정 처리 완료: ${processedCount}건`);
+
+  // 수정된 월의 JSON 재생성
+  const affectedMonthsArray = Array.from(affectedMonths);
+  if (affectedMonthsArray.length > 0) {
+    Logger.log('');
+    Logger.log('=== 수정된 월 JSON 재생성 ===');
+    for (const yearMonth of affectedMonthsArray) {
+      const [year, month] = yearMonth.split('-').map(Number);
+      Logger.log(`📁 ${year}년 ${month}월 JSON 재생성 중...`);
+      try {
+        특정월JSON생성(year, month);
+        Logger.log(`  ✅ ${year}년 ${month}월 JSON 재생성 완료`);
+      } catch (e) {
+        Logger.log(`  ❌ ${year}년 ${month}월 JSON 재생성 실패: ${e.message}`);
+      }
+    }
+  }
+
   Logger.log('');
-  
-  return processedCount;
+
+  return { processedCount, affectedMonths: affectedMonthsArray };
 }
 
 /**
@@ -2825,11 +2853,17 @@ function 관리자수정존재확인(memberName, dateStr) {
 
 /**
  * 🆕 수동으로 관리자수정만 처리 (테스트용)
+ * 이제 관리자수정처리()가 자동으로 해당 월 JSON을 재생성합니다.
  */
 function 관리자수정만_처리() {
-  관리자수정처리();
-  JSON파일생성();
-  Logger.log('✅ 관리자수정 처리 및 JSON 생성 완료!');
+  const result = 관리자수정처리();
+  Logger.log('');
+  Logger.log('========================================');
+  Logger.log(`✅ 관리자수정 처리 완료: ${result.processedCount}건`);
+  if (result.affectedMonths.length > 0) {
+    Logger.log(`📁 JSON 재생성된 월: ${result.affectedMonths.join(', ')}`);
+  }
+  Logger.log('========================================');
 }
 
 
