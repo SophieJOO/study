@@ -1020,6 +1020,132 @@ function JSON파일생성() {
   }
 }
 
+/**
+ * 특정 월의 JSON 파일 생성
+ * @param {number} year - 연도 (예: 2025)
+ * @param {number} month - 월 (1-12)
+ */
+function 특정월JSON생성(year, month) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const recordSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+  if (!recordSheet) {
+    Logger.log('제출기록 시트가 없습니다.');
+    return;
+  }
+
+  const records = recordSheet.getDataRange().getValues();
+  const jsonData = {};
+
+  // 대상 연월 문자열 생성
+  const targetYearMonth = `${year}-${String(month).padStart(2, '0')}`;
+
+  Logger.log(`JSON 생성: ${targetYearMonth} 데이터`);
+
+  // 조원별로 데이터 구조화
+  for (const memberName of Object.keys(CONFIG.MEMBERS)) {
+    jsonData[memberName] = {
+      출석: 0,
+      결석: 0,
+      오프: 0,
+      장기오프: 0,
+      경고: false,
+      벌칙: false,
+      기록: {},
+      주간통계: {}
+    };
+  }
+
+  // 기록 파싱
+  for (let i = 1; i < records.length; i++) {
+    const [timestamp, name, dateStr, fileCount, links, folderLink, status, weekNum, reason] = records[i];
+
+    if (!jsonData[name]) continue;
+
+    // 날짜 문자열 정규화
+    const dateFormatted = typeof dateStr === 'string'
+      ? dateStr
+      : Utilities.formatDate(new Date(dateStr), 'Asia/Seoul', 'yyyy-MM-dd');
+
+    // 대상 월 데이터만 필터링
+    if (!dateFormatted.startsWith(targetYearMonth)) {
+      continue;
+    }
+
+    const date = new Date(dateFormatted);
+    const day = date.getDate().toString();
+
+    // 날짜별 기록
+    jsonData[name].기록[day] = {
+      status: status,
+      link: folderLink || (links ? (links.split('\n')[0].split(': ')[1] || links) : ''),
+      fileCount: fileCount || 0,
+      reason: reason || ''
+    };
+
+    // 출석/결석/오프/장기오프 카운트
+    if (status === 'O') {
+      jsonData[name].출석++;
+    } else if (status === 'OFF') {
+      jsonData[name].오프++;
+    } else if (status === CONFIG.LONG_OFF_STATUS) {
+      jsonData[name].장기오프++;
+    } else {
+      jsonData[name].결석++;
+    }
+
+    // 주간 통계
+    const weekKey = `${weekNum}주차`;
+    if (!jsonData[name].주간통계[weekKey]) {
+      jsonData[name].주간통계[weekKey] = {
+        출석: 0,
+        결석: 0,
+        오프: 0,
+        장기오프: 0
+      };
+    }
+
+    if (status === 'O') {
+      jsonData[name].주간통계[weekKey].출석++;
+    } else if (status === 'OFF') {
+      jsonData[name].주간통계[weekKey].오프++;
+    } else if (status === CONFIG.LONG_OFF_STATUS) {
+      jsonData[name].주간통계[weekKey].장기오프++;
+    } else {
+      jsonData[name].주간통계[weekKey].결석++;
+    }
+  }
+
+  // 경고/벌칙 계산
+  for (const memberName of Object.keys(jsonData)) {
+    const member = jsonData[memberName];
+    if (member.결석 >= 3) member.경고 = true;
+    if (member.결석 >= 4) member.벌칙 = true;
+  }
+
+  // JSON 파일 저장
+  const jsonString = JSON.stringify(jsonData, null, 2);
+  const fileName = `attendance_summary_${targetYearMonth}.json`;
+
+  try {
+    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+
+    // 기존 파일 삭제
+    const existingFiles = folder.getFilesByName(fileName);
+    while (existingFiles.hasNext()) {
+      existingFiles.next().setTrashed(true);
+    }
+
+    // 새 파일 생성
+    const file = folder.createFile(fileName, jsonString, MimeType.PLAIN_TEXT);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    Logger.log(`JSON 파일 생성 완료: ${file.getUrl()}`);
+  } catch (error) {
+    Logger.log(`JSON 파일 생성 오류: ${error.message}`);
+  }
+}
+
 // ==================== 초기 설정 ====================
 
 /**
