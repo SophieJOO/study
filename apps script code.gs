@@ -4500,6 +4500,39 @@ function 월간원본수집(yearMonth) {
 }
 
 /**
+ * 사용 가능한 Gemini 모델 목록 확인
+ */
+function Gemini모델목록확인() {
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) {
+    Logger.log('❌ GEMINI_API_KEY가 설정되지 않았습니다.');
+    return;
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+
+  try {
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const result = JSON.parse(response.getContentText());
+
+    if (result.error) {
+      Logger.log('❌ 오류: ' + JSON.stringify(result.error));
+      return;
+    }
+
+    Logger.log('=== 사용 가능한 모델 목록 ===\n');
+    result.models.forEach(model => {
+      Logger.log(`📌 ${model.name}`);
+      Logger.log(`   - 표시명: ${model.displayName}`);
+      Logger.log(`   - 지원 메서드: ${model.supportedGenerationMethods?.join(', ')}`);
+      Logger.log('');
+    });
+  } catch (e) {
+    Logger.log('❌ API 호출 오류: ' + e.message);
+  }
+}
+
+/**
  * AI로 조원의 한 달 학습 내용 분석
  */
 function AI월간분석(memberName, 한달내용, 출석일수, 파일수, apiKey) {
