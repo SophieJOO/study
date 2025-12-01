@@ -524,6 +524,28 @@ function 마감시간체크() {
 }
 
 /**
+ * 🆕 OFF 파일 확인 함수 (off.md 또는 off.txt 파일 존재 여부 확인)
+ * @param {Folder} folder - 확인할 폴더 객체
+ * @returns {boolean} OFF 파일 존재 여부
+ */
+function OFF파일확인(folder) {
+  try {
+    const files = folder.getFiles();
+    while (files.hasNext()) {
+      const file = files.next();
+      const fileName = file.getName().toLowerCase();
+      if (fileName === 'off.md' || fileName === 'off.txt') {
+        return true;
+      }
+    }
+    return false;
+  } catch (error) {
+    Logger.log(`OFF파일확인 오류: ${error.message}`);
+    return false;
+  }
+}
+
+/**
  * 🆕 장기오프 확인 함수 (구글 폼 응답 시트 버전)
  * @param {string} memberName - 조원 이름
  * @param {string} dateStr - 확인할 날짜 (yyyy-MM-dd)
