@@ -539,6 +539,8 @@ function 마감시간체크() {
     const [year, month] = yearMonth.split('-').map(Number);
     Logger.log(`이전 달 JSON 재생성: ${year}년 ${month}월`);
     특정월JSON생성(year, month);
+    Logger.log(`이전 달 주간집계 재생성: ${year}년 ${month}월`);
+    월별주간집계(year, month);
   }
 }
 
@@ -1044,6 +1046,23 @@ function JSON파일생성() {
  */
 function JSON재생성_2025년11월() {
   특정월JSON생성(2025, 11);
+}
+
+/**
+ * 11월 주간집계 재생성 (편의 함수)
+ */
+function 주간집계재생성_2025년11월() {
+  월별주간집계(2025, 11);
+}
+
+/**
+ * 11월 전체 재생성 (일간 JSON + 주간집계)
+ */
+function 전체재생성_2025년11월() {
+  Logger.log('=== 2025년 11월 전체 재생성 시작 ===');
+  특정월JSON생성(2025, 11);
+  월별주간집계(2025, 11);
+  Logger.log('=== 2025년 11월 전체 재생성 완료 ===');
 }
 
 /**
