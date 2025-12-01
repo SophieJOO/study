@@ -1021,6 +1021,13 @@ function JSON파일생성() {
 }
 
 /**
+ * 11월 JSON 재생성 (편의 함수)
+ */
+function JSON재생성_2025년11월() {
+  특정월JSON생성(2025, 11);
+}
+
+/**
  * 특정 월의 JSON 파일 생성
  * @param {number} year - 연도 (예: 2025)
  * @param {number} month - 월 (1-12)
