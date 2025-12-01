@@ -4137,7 +4137,7 @@ function 월간AI분석실행(yearMonth) {
   const files = folder.getFilesByName(fileName);
   if (!files.hasNext()) {
     Logger.log(`❌ 수집된 데이터 파일이 없습니다: ${fileName}`);
-    Logger.log('먼저 월간데이터수집() 함수를 실행해주세요.');
+    Logger.log('일간 다이제스트가 먼저 생성되어야 월간 데이터가 누적됩니다.');
     return null;
   }
 
