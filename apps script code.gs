@@ -517,10 +517,29 @@ function 마감시간체크() {
   }
   
   Logger.log('=== 마감시간 체크 완료 ===');
-  
-  // JSON 재생성
+
+  // JSON 재생성 (현재 달 + 처리된 날짜의 달)
   Logger.log('JSON 파일 재생성 중...');
-  JSON파일생성();
+  JSON파일생성();  // 현재 달
+
+  // 처리된 날짜 중 이전 달이 있으면 해당 달도 JSON 재생성
+  const now2 = new Date();
+  const currentMonth = now2.getMonth() + 1;
+  const currentYear = now2.getFullYear();
+
+  const processedMonths = new Set();
+  for (const dateStr of targetDates) {
+    const [year, month] = dateStr.split('-').map(Number);
+    if (year !== currentYear || month !== currentMonth) {
+      processedMonths.add(`${year}-${month}`);
+    }
+  }
+
+  for (const yearMonth of processedMonths) {
+    const [year, month] = yearMonth.split('-').map(Number);
+    Logger.log(`이전 달 JSON 재생성: ${year}년 ${month}월`);
+    특정월JSON생성(year, month);
+  }
 }
 
 /**
