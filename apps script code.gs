@@ -2568,7 +2568,19 @@ function 다이제스트HTML가져오기(dateStr) {
     // 날짜로 검색 (헤더 제외)
     let fileId = null;
     for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === dateStr) {
+      const cellValue = data[i][0];
+      let cellDateStr;
+
+      // Date 객체인 경우 문자열로 변환
+      if (cellValue instanceof Date) {
+        cellDateStr = Utilities.formatDate(cellValue, 'Asia/Seoul', 'yyyy-MM-dd');
+      } else {
+        cellDateStr = String(cellValue).trim();
+      }
+
+      Logger.log(`  비교: 셀="${cellDateStr}" vs 요청="${dateStr}"`);
+
+      if (cellDateStr === dateStr) {
         fileId = data[i][1];  // 파일ID 컬럼
         Logger.log(`✅ 다이제스트 파일 ID 찾음: ${fileId}`);
         break;
