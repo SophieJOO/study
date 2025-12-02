@@ -68,8 +68,9 @@ const CONFIG = {
     DATE: 1,
     STATUS: 2,
     REASON: 3,
-    PROCESSED: 4,
-    PROCESSED_TIME: 5
+    FILE_LINK: 4,      // 🆕 파일링크 (선택)
+    PROCESSED: 5,
+    PROCESSED_TIME: 6
   },
   
   // 스캔 설정
@@ -812,22 +813,26 @@ function 파일목록및링크생성(folder) {
 /**
  * Google Sheets에 출석 기록 추가 (폴더 ID 직접 전달 버전)
  */
-function 출석기록추가(memberName, date, files, status = 'O', reason = '', folderId = '') {
+function 출석기록추가(memberName, date, files, status = 'O', reason = '', folderId = '', directLink = '') {
   const koreaTime = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
-  
+
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.SHEET_NAME);
     sheet.appendRow(['타임스탬프', '이름', '날짜', '파일수', '링크', '폴더링크', '출석상태', '주차', '사유']);
     sheet.getRange('A1:I1').setFontWeight('bold').setBackground('#4CAF50').setFontColor('white');
   }
-  
+
   const linksText = files.map(f => `${f.name}: ${f.url}`).join('\n');
-  
-  // 폴더 링크 생성
-  const folderLink = (status === 'O' && folderId) ? 
-    `https://drive.google.com/drive/folders/${folderId}` : '';
+
+  // 폴더 링크 생성 (directLink가 있으면 우선 사용)
+  let folderLink = '';
+  if (directLink) {
+    folderLink = directLink;  // 🆕 관리자가 직접 입력한 링크
+  } else if (status === 'O' && folderId) {
+    folderLink = `https://drive.google.com/drive/folders/${folderId}`;
+  }
   
   const weekNum = 주차계산(new Date(date));
   let displayText = '';
@@ -2057,48 +2062,50 @@ function 관리자수정시트_생성() {
   const sheet = ss.insertSheet('관리자수정');
   
   // 헤더 설정
-  const headers = ['조원 이름', '날짜 (YYYY-MM-DD)', '상태', '사유 (선택)', '처리상태', '처리시간'];
+  const headers = ['조원 이름', '날짜 (YYYY-MM-DD)', '상태', '사유 (선택)', '파일링크 (선택)', '처리상태', '처리시간'];
   sheet.appendRow(headers);
-  
+
   // 헤더 스타일
-  sheet.getRange('A1:F1')
+  sheet.getRange('A1:G1')
     .setFontWeight('bold')
     .setBackground('#FF9800')
     .setFontColor('white')
     .setHorizontalAlignment('center');
-  
+
   // 열 너비 조정
   sheet.setColumnWidth(1, 100);  // 조원 이름
   sheet.setColumnWidth(2, 150);  // 날짜
   sheet.setColumnWidth(3, 100);  // 상태
-  sheet.setColumnWidth(4, 300);  // 사유
-  sheet.setColumnWidth(5, 250);  // 처리상태
-  sheet.setColumnWidth(6, 150);  // 처리시간
-  
+  sheet.setColumnWidth(4, 200);  // 사유
+  sheet.setColumnWidth(5, 300);  // 파일링크
+  sheet.setColumnWidth(6, 100);  // 처리상태
+  sheet.setColumnWidth(7, 150);  // 처리시간
+
   // 예시 데이터 3개 추가
   const examples = [
-    ['센트룸', '2025-10-15', 'O', 'Google Drive 동기화 오류', '', ''],
-    ['길', '2025-10-16', '출석', '정전으로 업로드 지연', '', ''],
-    ['what', '2025-10-17', 'OFF', '긴급 병원 진료', '', '']
+    ['센트룸', '2025-10-15', 'O', 'Drive 동기화 오류', '', '', ''],
+    ['길', '2025-10-16', '출석', '업로드 지연', 'https://drive.google.com/...', '', ''],
+    ['what', '2025-10-17', 'OFF', '병원 진료', '', '', '']
   ];
-  
+
   examples.forEach(example => {
     sheet.appendRow(example);
   });
-  
+
   // 예시 데이터는 연한 노란색
-  sheet.getRange(2, 1, 3, 6).setBackground('#fff9c4');
-  
+  sheet.getRange(2, 1, 3, 7).setBackground('#fff9c4');
+
   // 안내문 추가
   sheet.getRange('A5').setValue('📝 사용 방법:');
   sheet.getRange('A6').setValue('1. 위 예시를 참고하여 새 행에 정보 입력');
   sheet.getRange('A7').setValue('2. 상태는 "O", "OFF", "LONG_OFF", "X" 또는 "출석", "오프", "장기오프", "결석" 입력');
-  sheet.getRange('A8').setValue('3. 트리거가 1시간마다 자동 처리하거나, "관리자수정_자동처리" 함수 직접 실행');
-  sheet.getRange('A9').setValue('4. 처리 완료되면 "처리상태" 열에 ✅ 표시됨');
-  sheet.getRange('A10').setValue('');
-  sheet.getRange('A11').setValue('⚠️ 주의: 예시 데이터는 삭제하거나 "처리상태"를 "⏭️ 스킵"으로 변경하세요');
-  
-  sheet.getRange('A5:A11').setFontWeight('bold').setFontColor('#666666');
+  sheet.getRange('A8').setValue('3. 파일링크는 선택사항 - 비워두면 ✓만, 입력하면 ✓📁 표시');
+  sheet.getRange('A9').setValue('4. 트리거가 1시간마다 자동 처리하거나, "관리자수정_자동처리" 함수 직접 실행');
+  sheet.getRange('A10').setValue('5. 처리 완료되면 "처리상태" 열에 완료 표시됨');
+  sheet.getRange('A11').setValue('');
+  sheet.getRange('A12').setValue('⚠️ 주의: 예시 데이터는 삭제하거나 "처리상태"를 "⏭️ 스킵"으로 변경하세요');
+
+  sheet.getRange('A5:A12').setFontWeight('bold').setFontColor('#666666');
   
   // 데이터 유효성 검사 (상태 열)
   const statusRule = SpreadsheetApp.newDataValidation()
@@ -2718,6 +2725,7 @@ function 관리자수정처리() {
     const dateValue = row[CONFIG.ADMIN_COLUMNS.DATE];
     const status = row[CONFIG.ADMIN_COLUMNS.STATUS];
     const reason = row[CONFIG.ADMIN_COLUMNS.REASON] || '';
+    const fileLink = row[CONFIG.ADMIN_COLUMNS.FILE_LINK] || '';  // 🆕 파일링크 (선택)
     const processed = row[CONFIG.ADMIN_COLUMNS.PROCESSED];
 
     // 이미 처리된 항목은 건너뛰기
@@ -2775,8 +2783,9 @@ function 관리자수정처리() {
 
     // 출석기록 추가/업데이트
     try {
-      Logger.log(`  🔧 ${name} - ${dateStr} → ${normalizedStatus}${reason ? ' (' + reason + ')' : ''}`);
-      출석기록추가(name, dateStr, [], normalizedStatus, reason);
+      const linkInfo = fileLink ? ` [링크: ${fileLink.substring(0, 30)}...]` : '';
+      Logger.log(`  🔧 ${name} - ${dateStr} → ${normalizedStatus}${reason ? ' (' + reason + ')' : ''}${linkInfo}`);
+      출석기록추가(name, dateStr, [], normalizedStatus, reason, '', fileLink);
 
       // 수정된 월 추적 (yyyy-MM 형식)
       const yearMonth = Utilities.formatDate(dateObj, 'Asia/Seoul', 'yyyy-MM');
