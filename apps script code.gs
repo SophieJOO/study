@@ -2807,12 +2807,32 @@ function 관리자수정처리() {
 
   Logger.log(`✅ 관리자수정 처리 완료: ${processedCount}건`);
 
-  // 수정된 월의 JSON 재생성
+  // 수정된 월의 JSON 재생성 (최근 2개월만 처리하여 성능 최적화)
   const affectedMonthsArray = Array.from(affectedMonths);
   if (affectedMonthsArray.length > 0) {
     Logger.log('');
     Logger.log('=== 수정된 월 JSON 재생성 ===');
-    for (const yearMonth of affectedMonthsArray) {
+
+    // 현재 날짜 기준으로 최근 2개월만 재생성 (현재월 + 이전월)
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-based
+
+    // 재생성 대상 월 필터링
+    const recentMonths = affectedMonthsArray.filter(yearMonth => {
+      const [year, month] = yearMonth.split('-').map(Number);
+      // 현재월과 이전월만 재생성 (최대 2개월 범위)
+      const monthDiff = (currentYear - year) * 12 + (currentMonth - month);
+      return monthDiff >= 0 && monthDiff <= 1;
+    });
+
+    // 오래된 월은 스킵 로그
+    const skippedMonths = affectedMonthsArray.filter(m => !recentMonths.includes(m));
+    if (skippedMonths.length > 0) {
+      Logger.log(`⏭️ 오래된 월 스킵 (성능 최적화): ${skippedMonths.join(', ')}`);
+    }
+
+    for (const yearMonth of recentMonths) {
       const [year, month] = yearMonth.split('-').map(Number);
       Logger.log(`📁 ${year}년 ${month}월 JSON 재생성 중...`);
       try {
