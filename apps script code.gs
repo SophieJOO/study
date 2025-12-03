@@ -2112,96 +2112,6 @@ function 관리자수정시트_초기화() {
   Logger.log(`✅ ${deletedCount}개 행 삭제 완료`);
 }
 
-// ==================== 관리자 함수 사용 예시 ====================
-
-/**
- * 예시 1: 단일 기록 수정
- * 센트룸의 10월 15일 출석을 출석(O)으로 변경
- */
-function 예시_단일수정() {
-  관리자_출석수정(
-    '센트룸',              // 조원 이름
-    '2025-10-15',       // 날짜
-    'O',                // 상태: 'O'(출석), 'OFF'(오프), 'LONG_OFF'(장기오프), 'X'(결석)
-    '시스템 오류 수정',   // 사유
-    true                // 덮어쓰기: true
-  );
-}
-
-/**
- * 예시 2: 결석을 출석으로 변경
- */
-function 예시_결석을출석으로() {
-  관리자_출석수정('길', '2025-10-16', 'O', '인증 누락, 관리자 확인 후 출석 처리');
-}
-
-/**
- * 예시 3: 출석을 오프로 변경
- */
-function 예시_출석을오프로() {
-  관리자_출석수정('what', '2025-10-17', 'OFF', '사후 오프 신청 승인');
-}
-
-/**
- * 예시 4: 일괄 수정
- * 여러 조원의 기록을 한 번에 수정
- */
-function 예시_일괄수정() {
-  const 수정목록 = [
-    {
-      name: '센트룸',
-      date: '2025-10-15',
-      status: 'O',
-      reason: '정전으로 인한 업로드 지연'
-    },
-    {
-      name: '길',
-      date: '2025-10-15',
-      status: 'O',
-      reason: '정전으로 인한 업로드 지연'
-    },
-    {
-      name: 'what',
-      date: '2025-10-15',
-      status: 'O',
-      reason: '정전으로 인한 업로드 지연'
-    }
-  ];
-  
-  관리자_일괄수정(수정목록);
-}
-
-/**
- * 예시 5: 기록 삭제
- * 중복되거나 잘못된 기록 삭제
- */
-function 예시_기록삭제() {
-  관리자_기록삭제('센트룸', '2025-10-18');
-}
-
-/**
- * 예시 6: 특정 조원 기록 조회
- */
-function 예시_기록조회() {
-  // 전체 조회
-  관리자_기록조회('센트룸');
-  
-  // 특정 월만 조회
-  // 관리자_기록조회('센트룸', '2025-10');
-}
-
-/**
- * 예시 7: 장기오프로 변경
- */
-function 예시_장기오프로변경() {
-  관리자_출석수정(
-    '녹동',
-    '2025-10-20',
-    'LONG_OFF',
-    '해외 출장 (사후 신청)'
-  );
-}
-
 // ==================== Web App 배포 ====================
 
 /**
@@ -2984,14 +2894,6 @@ function 월별결산생성() {
 }
 
 /**
- * 🆕 월별결산 수동 실행 (테스트용)
- */
-function 월별결산_수동실행() {
-  월별결산생성();
-  Logger.log('✅ 월별결산 생성 완료!');
-}
-
-/**
  * 🆕 특정 월의 결산 생성 (수동 실행용)
  * @param {number} year - 연도 (예: 2025)
  * @param {number} month - 월 (1-12)
@@ -3181,66 +3083,6 @@ function 특정월_결산생성(year, month) {
   
   Logger.log(`✅ ${yearMonth} 월별결산 저장 완료: ${summaryData.length}명`);
   Logger.log('');
-}
-
-/**
- * 🆕 10월 결산 생성 (예시)
- */
-function 결산_10월생성() {
-  특정월_결산생성(2025, 10);
-  Logger.log('✅ 2025년 10월 결산 생성 완료!');
-}
-
-function 녹동_폴더링크_복구() {
-  Logger.log('=== 녹동 폴더 링크 복구 시작 ===');
-  
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
-  const data = sheet.getDataRange().getValues();
-  
-  const 녹동폴더ID = CONFIG.MEMBERS['녹동'];
-  const mainFolder = DriveApp.getFolderById(녹동폴더ID);
-  
-  let 수정개수 = 0;
-  
-  for (let i = 1; i < data.length; i++) {
-    const [timestamp, name, dateStr, fileCount, links, folderLink, status] = data[i];
-    
-    // 녹동의 출석 기록이고 폴더 링크가 비어있거나 불완전한 경우
-    if (name === '녹동' && status === 'O' && (!folderLink || folderLink.length < 50)) {
-      
-      const dateFormatted = typeof dateStr === 'string' ? 
-        dateStr : 
-        Utilities.formatDate(new Date(dateStr), 'Asia/Seoul', 'yyyy-MM-dd');
-      
-      Logger.log(`처리 중: ${dateFormatted}`);
-      
-      // 날짜 폴더 찾기
-      const dateFolder = 오늘날짜폴더찾기(mainFolder, dateFormatted);
-      
-      if (dateFolder) {
-        const newFolderLink = `https://drive.google.com/drive/folders/${dateFolder.getId()}`;
-        
-        // 시트의 폴더 링크 열(F열, 6번째) 업데이트
-        sheet.getRange(i + 1, 6).setValue(newFolderLink);
-        
-        Logger.log(`  ✅ 수정 완료: ${newFolderLink}`);
-        수정개수++;
-      } else {
-        Logger.log(`  ⚠️ ${dateFormatted} 폴더를 찾을 수 없음`);
-      }
-    }
-  }
-  
-  Logger.log('');
-  Logger.log(`=== 복구 완료: ${수정개수}개 기록 수정됨 ===`);
-  
-  // JSON 재생성
-  if (수정개수 > 0) {
-    Logger.log('JSON 파일 재생성 중...');
-    JSON파일생성();
-    Logger.log('✅ JSON 파일 재생성 완료!');
-  }
 }
 
 // ==================== 🎯 원클릭 장기오프 시스템 완전 설치 ====================
@@ -4446,39 +4288,6 @@ function 월간원본수집(yearMonth) {
   Logger.log('='.repeat(60));
 
   return collectionFolder.getUrl();
-}
-
-/**
- * 사용 가능한 Gemini 모델 목록 확인
- */
-function Gemini모델목록확인() {
-  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  if (!apiKey) {
-    Logger.log('❌ GEMINI_API_KEY가 설정되지 않았습니다.');
-    return;
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-
-  try {
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    const result = JSON.parse(response.getContentText());
-
-    if (result.error) {
-      Logger.log('❌ 오류: ' + JSON.stringify(result.error));
-      return;
-    }
-
-    Logger.log('=== 사용 가능한 모델 목록 ===\n');
-    result.models.forEach(model => {
-      Logger.log(`📌 ${model.name}`);
-      Logger.log(`   - 표시명: ${model.displayName}`);
-      Logger.log(`   - 지원 메서드: ${model.supportedGenerationMethods?.join(', ')}`);
-      Logger.log('');
-    });
-  } catch (e) {
-    Logger.log('❌ API 호출 오류: ' + e.message);
-  }
 }
 
 /**
