@@ -62,15 +62,15 @@ const CONFIG = {
     APPROVED: 5
   },
   
-  // 🆕 관리자수정 시트 열 구조
+  // 🆕 관리자수정 시트 열 구조 (파일링크는 맨 끝)
   ADMIN_COLUMNS: {
     NAME: 0,
     DATE: 1,
     STATUS: 2,
     REASON: 3,
-    FILE_LINK: 4,      // 🆕 파일링크 (선택)
-    PROCESSED: 5,
-    PROCESSED_TIME: 6
+    PROCESSED: 4,
+    PROCESSED_TIME: 5,
+    FILE_LINK: 6       // 🆕 파일링크 (선택)
   },
   
   // 스캔 설정
@@ -2061,8 +2061,8 @@ function 관리자수정시트_생성() {
   // 새 시트 생성
   const sheet = ss.insertSheet('관리자수정');
   
-  // 헤더 설정
-  const headers = ['조원 이름', '날짜 (YYYY-MM-DD)', '상태', '사유 (선택)', '파일링크 (선택)', '처리상태', '처리시간'];
+  // 헤더 설정 (파일링크는 맨 끝)
+  const headers = ['조원 이름', '날짜 (YYYY-MM-DD)', '상태', '사유 (선택)', '처리상태', '처리시간', '파일링크 (선택)'];
   sheet.appendRow(headers);
 
   // 헤더 스타일
@@ -2077,14 +2077,14 @@ function 관리자수정시트_생성() {
   sheet.setColumnWidth(2, 150);  // 날짜
   sheet.setColumnWidth(3, 100);  // 상태
   sheet.setColumnWidth(4, 200);  // 사유
-  sheet.setColumnWidth(5, 300);  // 파일링크
-  sheet.setColumnWidth(6, 100);  // 처리상태
-  sheet.setColumnWidth(7, 150);  // 처리시간
+  sheet.setColumnWidth(5, 100);  // 처리상태
+  sheet.setColumnWidth(6, 150);  // 처리시간
+  sheet.setColumnWidth(7, 300);  // 파일링크
 
-  // 예시 데이터 3개 추가
+  // 예시 데이터 3개 추가 (파일링크는 맨 끝)
   const examples = [
     ['센트룸', '2025-10-15', 'O', 'Drive 동기화 오류', '', '', ''],
-    ['길', '2025-10-16', '출석', '업로드 지연', 'https://drive.google.com/...', '', ''],
+    ['길', '2025-10-16', '출석', '업로드 지연', '', '', 'https://drive.google.com/...'],
     ['what', '2025-10-17', 'OFF', '병원 진료', '', '', '']
   ];
 
