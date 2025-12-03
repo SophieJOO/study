@@ -2783,9 +2783,11 @@ function 관리자수정처리() {
 
     // 출석기록 추가/업데이트
     try {
-      const linkInfo = fileLink ? ` [링크: ${fileLink.substring(0, 30)}...]` : '';
+      // fileLink를 문자열로 변환 (빈 값이거나 다른 타입일 수 있음)
+      const fileLinkStr = fileLink ? String(fileLink).trim() : '';
+      const linkInfo = fileLinkStr ? ` [링크: ${fileLinkStr.substring(0, 30)}...]` : '';
       Logger.log(`  🔧 ${name} - ${dateStr} → ${normalizedStatus}${reason ? ' (' + reason + ')' : ''}${linkInfo}`);
-      출석기록추가(name, dateStr, [], normalizedStatus, reason, '', fileLink);
+      출석기록추가(name, dateStr, [], normalizedStatus, reason, '', fileLinkStr);
 
       // 수정된 월 추적 (yyyy-MM 형식)
       const yearMonth = Utilities.formatDate(dateObj, 'Asia/Seoul', 'yyyy-MM');
