@@ -2795,8 +2795,9 @@ function 관리자수정처리() {
 
       // 처리완료 표시
       const rowIndex = i + 1;
+      const formattedTime = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
       adminSheet.getRange(rowIndex, CONFIG.ADMIN_COLUMNS.PROCESSED + 1).setValue('완료');
-      adminSheet.getRange(rowIndex, CONFIG.ADMIN_COLUMNS.PROCESSED_TIME + 1).setValue(now);
+      adminSheet.getRange(rowIndex, CONFIG.ADMIN_COLUMNS.PROCESSED_TIME + 1).setValue(formattedTime);
 
       processedCount++;
     } catch (e) {
