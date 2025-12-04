@@ -1406,14 +1406,14 @@ function 초기설정() {
 
   Logger.log('트리거 5 설정 완료: 매일 새벽 4시 전날 다이제스트 자동 생성');
 
-  // 🆕 트리거 6: 매일 새벽 6시 주간집계 자동 생성 (진행 중인 주차도 실시간 반영)
-  ScriptApp.newTrigger('이번달주간집계')
+  // 🆕 트리거 6: 매일 새벽 6시 이번 주 주간집계 (빠른 버전)
+  ScriptApp.newTrigger('이번주주간집계')
     .timeBased()
     .atHour(6)
     .everyDays(1)
     .create();
 
-  Logger.log('트리거 6 설정 완료: 매일 새벽 6시 주간집계 자동 생성 (실시간 반영)');
+  Logger.log('트리거 6 설정 완료: 매일 새벽 6시 이번 주 주간집계 (빠른 버전)');
 
   // 🆕 트리거 7: 매월 1일 오전 5시 월간 AI 분석 (전월, 누적된 데이터 사용)
   ScriptApp.newTrigger('월간AI분석_자동실행')
@@ -3650,6 +3650,187 @@ function 이번달주간집계() {
   const 집계결과 = 월별주간집계(year, month);
   주간집계저장(year, month, 집계결과);
   주간집계JSON저장(year, month, 집계결과);
+}
+
+/**
+ * 🆕 이번 주만 빠르게 집계 (매일 트리거용)
+ * - 월요일 기준으로 주를 판단
+ * - 월초에 월요일이 없는 날들은 이전달 마지막 주로 처리
+ * - 예: 2026년 1월 1~4일(목~일) → 2025년 12월 마지막 주
+ */
+function 이번주주간집계() {
+  const startTime = new Date();
+  Logger.log('=== 이번 주 주간집계 시작 ===');
+
+  const now = new Date();
+
+  // 이번 주 월요일 찾기
+  const 이번주월요일 = new Date(now);
+  const dayOfWeek = now.getDay(); // 0=일, 1=월, ..., 6=토
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  이번주월요일.setDate(now.getDate() - daysFromMonday);
+  이번주월요일.setHours(0, 0, 0, 0);
+
+  // 이번 주 일요일
+  const 이번주일요일 = new Date(이번주월요일);
+  이번주일요일.setDate(이번주월요일.getDate() + 6);
+
+  // 월요일이 속한 월이 이 주의 소속 월
+  const 소속년도 = 이번주월요일.getFullYear();
+  const 소속월 = 이번주월요일.getMonth(); // 0-based
+
+  Logger.log(`오늘: ${Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd (E)')}`);
+  Logger.log(`이번 주: ${Utilities.formatDate(이번주월요일, 'Asia/Seoul', 'MM/dd(E)')} ~ ${Utilities.formatDate(이번주일요일, 'Asia/Seoul', 'MM/dd(E)')}`);
+  Logger.log(`소속: ${소속년도}년 ${소속월 + 1}월`);
+
+  // 이 주가 소속월의 몇 번째 주인지 계산
+  const 주목록 = 월별주목록가져오기(소속년도, 소속월);
+  let 현재주차 = -1;
+
+  for (let i = 0; i < 주목록.length; i++) {
+    const 주 = 주목록[i];
+    if (주.시작.getTime() === 이번주월요일.getTime()) {
+      현재주차 = i + 1;
+      break;
+    }
+  }
+
+  if (현재주차 === -1) {
+    Logger.log('⚠️ 현재 주차를 찾을 수 없습니다.');
+    return;
+  }
+
+  Logger.log(`→ ${소속월 + 1}월 ${현재주차}주차`);
+
+  // 이번 주가 완료되었는지 확인
+  const 오늘자정 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const 완료된주 = 이번주일요일 < 오늘자정;
+
+  // 각 조원별 이번 주 집계
+  const 이번주집계 = {};
+
+  for (const memberName of Object.keys(CONFIG.MEMBERS)) {
+    const 결과 = 주간인증계산(memberName, 이번주월요일, 이번주일요일, 완료된주);
+
+    이번주집계[memberName] = {
+      주차: 현재주차,
+      인증횟수: 결과.인증횟수,
+      장기오프일수: 결과.장기오프일수,
+      필요횟수: 결과.필요횟수,
+      결석: 결과.결석,
+      전체장기오프: 결과.전체장기오프,
+      주완료: 결과.주완료
+    };
+
+    const 상태표시 = 결과.주완료 ? `→ 결석 ${결과.결석}회` : '(진행중)';
+    Logger.log(`  ${memberName}: 인증 ${결과.인증횟수}/${결과.필요횟수}회 ${상태표시}`);
+  }
+
+  // 기존 JSON 파일 읽어서 이번 주만 업데이트
+  이번주JSON업데이트(소속년도, 소속월, 현재주차, 이번주집계, 주목록);
+
+  const endTime = new Date();
+  const 소요시간 = (endTime - startTime) / 1000;
+  Logger.log(`\n=== 이번 주 주간집계 완료 (${소요시간.toFixed(1)}초) ===`);
+}
+
+/**
+ * 이번 주 데이터만 JSON에 업데이트 (전체 재생성 없이)
+ */
+function 이번주JSON업데이트(year, month, 현재주차, 이번주집계, 주목록) {
+  const 년월 = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const fileName = `weekly_summary_${년월}.json`;
+
+  try {
+    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+    const files = folder.getFilesByName(fileName);
+
+    let jsonData;
+
+    if (files.hasNext()) {
+      // 기존 파일이 있으면 읽어서 업데이트
+      const file = files.next();
+      const content = file.getBlob().getDataAsString('UTF-8');
+      jsonData = JSON.parse(content);
+      Logger.log(`📂 기존 JSON 파일 로드: ${fileName}`);
+    } else {
+      // 없으면 새로 생성
+      jsonData = {
+        년월: 년월,
+        생성일: new Date().toISOString(),
+        총주차: 주목록.length,
+        주차정보: 주목록.map((주, idx) => ({
+          주차: idx + 1,
+          시작: Utilities.formatDate(주.시작, 'Asia/Seoul', 'yyyy-MM-dd'),
+          끝: Utilities.formatDate(주.끝, 'Asia/Seoul', 'yyyy-MM-dd')
+        })),
+        규칙설명: {
+          주정의: '월요일~일요일',
+          예시: '11월 25일(월)~12월 1일(일) → 11월 4주차'
+        },
+        조원별집계: {}
+      };
+      Logger.log(`📝 새 JSON 파일 생성: ${fileName}`);
+    }
+
+    // 각 조원별 이번 주차 데이터 업데이트
+    for (const [memberName, weekData] of Object.entries(이번주집계)) {
+      if (!jsonData.조원별집계[memberName]) {
+        jsonData.조원별집계[memberName] = {
+          총결석: 0,
+          주차별: []
+        };
+      }
+
+      const memberData = jsonData.조원별집계[memberName];
+
+      // 해당 주차 데이터 찾아서 업데이트 또는 추가
+      const weekIndex = memberData.주차별.findIndex(w => w.주차 === 현재주차);
+
+      const newWeekData = {
+        주차: 현재주차,
+        인증: weekData.인증횟수,
+        필요: weekData.필요횟수,
+        장기오프: weekData.장기오프일수,
+        결석: weekData.결석,
+        상태: weekData.주완료 ? '완료' : '진행중',
+        전체장기오프: weekData.전체장기오프
+      };
+
+      if (weekIndex >= 0) {
+        memberData.주차별[weekIndex] = newWeekData;
+      } else {
+        memberData.주차별.push(newWeekData);
+        // 주차 순서로 정렬
+        memberData.주차별.sort((a, b) => a.주차 - b.주차);
+      }
+
+      // 총결석 재계산
+      memberData.총결석 = memberData.주차별
+        .filter(w => !w.전체장기오프)
+        .reduce((sum, w) => sum + (w.결석 || 0), 0);
+    }
+
+    // 업데이트 시간 기록
+    jsonData.최종업데이트 = new Date().toISOString();
+
+    // 파일 저장
+    const jsonString = JSON.stringify(jsonData, null, 2);
+
+    // 기존 파일 삭제 후 새로 생성
+    const existingFiles = folder.getFilesByName(fileName);
+    while (existingFiles.hasNext()) {
+      existingFiles.next().setTrashed(true);
+    }
+
+    const newFile = folder.createFile(fileName, jsonString, MimeType.PLAIN_TEXT);
+    newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    Logger.log(`✅ JSON 업데이트 완료: ${현재주차}주차`);
+
+  } catch (e) {
+    Logger.log(`❌ JSON 업데이트 실패: ${e.message}`);
+  }
 }
 
 function JSON파일ID확인() {
