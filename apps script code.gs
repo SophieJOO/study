@@ -62,20 +62,225 @@ const CONFIG = {
     APPROVED: 5
   },
   
-  // 🆕 관리자수정 시트 열 구조
+  // 🆕 관리자수정 시트 열 구조 (파일링크는 맨 끝)
   ADMIN_COLUMNS: {
     NAME: 0,
     DATE: 1,
     STATUS: 2,
     REASON: 3,
     PROCESSED: 4,
-    PROCESSED_TIME: 5
+    PROCESSED_TIME: 5,
+    FILE_LINK: 6       // 🆕 파일링크 (선택)
   },
   
   // 스캔 설정
   SCAN_ALL_MONTHS: false,
   MAX_FOLDERS_TO_SCAN: 100  // 마지막 항목은 콤마 없어도 OK
 };
+
+// ==================== 📋 시트 메뉴 ====================
+
+/**
+ * 시트 열 때 자동으로 커스텀 메뉴 생성
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('📊 출석관리')
+    .addItem('🗑️ 오래된 데이터 정리...', '오래된데이터정리_다이얼로그')
+    .addItem('📅 특정 월 데이터 삭제...', '특정월데이터삭제_다이얼로그')
+    .addSeparator()
+    .addItem('🔄 이번 주 주간집계 실행', '이번주주간집계')
+    .addItem('📄 이번 달 JSON 재생성', 'JSON파일생성')
+    .addSeparator()
+    .addItem('⚙️ 초기설정 (트리거 재설정)', '초기설정')
+    .addToUi();
+}
+
+/**
+ * 오래된 데이터 정리 다이얼로그
+ */
+function 오래된데이터정리_다이얼로그() {
+  const ui = SpreadsheetApp.getUi();
+  const result = ui.prompt(
+    '🗑️ 오래된 데이터 정리',
+    '최근 몇 개월의 데이터를 유지할까요? (예: 2 입력 시 현재월 + 이전월만 유지)\n\n' +
+    '⚠️ 주의: 삭제된 데이터는 복구할 수 없습니다!',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (result.getSelectedButton() === ui.Button.OK) {
+    const monthsToKeep = parseInt(result.getResponseText());
+
+    if (isNaN(monthsToKeep) || monthsToKeep < 1) {
+      ui.alert('❌ 오류', '1 이상의 숫자를 입력해주세요.', ui.ButtonSet.OK);
+      return;
+    }
+
+    const confirmResult = ui.alert(
+      '⚠️ 확인',
+      `최근 ${monthsToKeep}개월 데이터만 유지하고 나머지를 삭제합니다.\n정말 진행하시겠습니까?`,
+      ui.ButtonSet.YES_NO
+    );
+
+    if (confirmResult === ui.Button.YES) {
+      const deletedCount = 오래된데이터정리(monthsToKeep);
+      ui.alert('✅ 완료', `${deletedCount}개의 오래된 기록이 삭제되었습니다.`, ui.ButtonSet.OK);
+    }
+  }
+}
+
+/**
+ * 특정 월 데이터 삭제 다이얼로그
+ */
+function 특정월데이터삭제_다이얼로그() {
+  const ui = SpreadsheetApp.getUi();
+  const result = ui.prompt(
+    '📅 특정 월 데이터 삭제',
+    '삭제할 연월을 입력하세요 (예: 2025-10)\n\n' +
+    '⚠️ 주의: 삭제된 데이터는 복구할 수 없습니다!',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (result.getSelectedButton() === ui.Button.OK) {
+    const yearMonth = result.getResponseText().trim();
+
+    // 형식 검증 (YYYY-MM)
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      ui.alert('❌ 오류', 'YYYY-MM 형식으로 입력해주세요. (예: 2025-10)', ui.ButtonSet.OK);
+      return;
+    }
+
+    const confirmResult = ui.alert(
+      '⚠️ 확인',
+      `${yearMonth} 데이터를 모두 삭제합니다.\n정말 진행하시겠습니까?`,
+      ui.ButtonSet.YES_NO
+    );
+
+    if (confirmResult === ui.Button.YES) {
+      const deletedCount = 특정월데이터삭제(yearMonth);
+      ui.alert('✅ 완료', `${yearMonth}: ${deletedCount}개의 기록이 삭제되었습니다.`, ui.ButtonSet.OK);
+    }
+  }
+}
+
+/**
+ * 오래된 출석 데이터 정리
+ * @param {number} monthsToKeep - 유지할 개월 수 (현재월 포함)
+ * @returns {number} 삭제된 행 수
+ */
+function 오래된데이터정리(monthsToKeep = 2) {
+  Logger.log(`=== 오래된 데이터 정리 시작 (최근 ${monthsToKeep}개월 유지) ===`);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+  if (!sheet) {
+    Logger.log('❌ 출석 시트를 찾을 수 없습니다.');
+    return 0;
+  }
+
+  // 유지할 연월 목록 생성
+  const now = new Date();
+  const keepMonths = new Set();
+
+  for (let i = 0; i < monthsToKeep; i++) {
+    const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const yearMonth = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+    keepMonths.add(yearMonth);
+  }
+
+  Logger.log(`유지할 월: ${Array.from(keepMonths).join(', ')}`);
+
+  // 데이터 가져오기
+  const data = sheet.getDataRange().getValues();
+  const rowsToDelete = [];
+
+  // 날짜 컬럼 (3번째 = index 2)
+  for (let i = 1; i < data.length; i++) {
+    const dateValue = data[i][2];  // 날짜 컬럼
+
+    if (!dateValue) continue;
+
+    let dateStr;
+    if (dateValue instanceof Date) {
+      dateStr = Utilities.formatDate(dateValue, 'Asia/Seoul', 'yyyy-MM-dd');
+    } else {
+      dateStr = String(dateValue).trim();
+    }
+
+    const yearMonth = dateStr.substring(0, 7);  // "2025-10"
+
+    if (!keepMonths.has(yearMonth)) {
+      rowsToDelete.push(i + 1);  // 1-based row number
+    }
+  }
+
+  Logger.log(`삭제 대상: ${rowsToDelete.length}개 행`);
+
+  // 뒤에서부터 삭제 (인덱스 변경 방지)
+  for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+    sheet.deleteRow(rowsToDelete[i]);
+  }
+
+  Logger.log(`✅ ${rowsToDelete.length}개 행 삭제 완료`);
+
+  // JSON 재생성
+  if (rowsToDelete.length > 0) {
+    Logger.log('JSON 파일 재생성 중...');
+    JSON파일생성();
+    Logger.log('✅ JSON 파일 재생성 완료');
+  }
+
+  return rowsToDelete.length;
+}
+
+/**
+ * 특정 월의 출석 데이터 삭제
+ * @param {string} yearMonth - 삭제할 연월 (예: "2025-10")
+ * @returns {number} 삭제된 행 수
+ */
+function 특정월데이터삭제(yearMonth) {
+  Logger.log(`=== ${yearMonth} 데이터 삭제 시작 ===`);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+  if (!sheet) {
+    Logger.log('❌ 출석 시트를 찾을 수 없습니다.');
+    return 0;
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const rowsToDelete = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const dateValue = data[i][2];  // 날짜 컬럼
+
+    if (!dateValue) continue;
+
+    let dateStr;
+    if (dateValue instanceof Date) {
+      dateStr = Utilities.formatDate(dateValue, 'Asia/Seoul', 'yyyy-MM-dd');
+    } else {
+      dateStr = String(dateValue).trim();
+    }
+
+    if (dateStr.startsWith(yearMonth)) {
+      rowsToDelete.push(i + 1);  // 1-based row number
+    }
+  }
+
+  Logger.log(`${yearMonth}: ${rowsToDelete.length}개 행 삭제 예정`);
+
+  // 뒤에서부터 삭제
+  for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+    sheet.deleteRow(rowsToDelete[i]);
+  }
+
+  Logger.log(`✅ ${rowsToDelete.length}개 행 삭제 완료`);
+
+  return rowsToDelete.length;
+}
 
 // ==================== 메인 함수 ====================
 
@@ -539,12 +744,7 @@ function 마감시간체크() {
     const [year, month] = yearMonth.split('-').map(Number);
     Logger.log(`이전 달 JSON 재생성: ${year}년 ${month}월`);
     특정월JSON생성(year, month);           // 1-based month
-
-    Logger.log(`이전 달 주간집계 재생성: ${year}년 ${month}월`);
-    const zeroBasedMonth = month - 1;      // 0-based month (1월=0, 12월=11)
-    const 집계결과 = 월별주간집계(year, zeroBasedMonth);
-    주간집계저장(year, zeroBasedMonth, 집계결과);
-    주간집계JSON저장(year, zeroBasedMonth, 집계결과);
+    // 주간집계는 매일 새벽 이번주주간집계 트리거에서 처리 (성능 최적화)
   }
 }
 
@@ -812,22 +1012,26 @@ function 파일목록및링크생성(folder) {
 /**
  * Google Sheets에 출석 기록 추가 (폴더 ID 직접 전달 버전)
  */
-function 출석기록추가(memberName, date, files, status = 'O', reason = '', folderId = '') {
+function 출석기록추가(memberName, date, files, status = 'O', reason = '', folderId = '', directLink = '') {
   const koreaTime = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
-  
+
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.SHEET_NAME);
     sheet.appendRow(['타임스탬프', '이름', '날짜', '파일수', '링크', '폴더링크', '출석상태', '주차', '사유']);
     sheet.getRange('A1:I1').setFontWeight('bold').setBackground('#4CAF50').setFontColor('white');
   }
-  
+
   const linksText = files.map(f => `${f.name}: ${f.url}`).join('\n');
-  
-  // 폴더 링크 생성
-  const folderLink = (status === 'O' && folderId) ? 
-    `https://drive.google.com/drive/folders/${folderId}` : '';
+
+  // 폴더 링크 생성 (directLink가 있으면 우선 사용)
+  let folderLink = '';
+  if (directLink) {
+    folderLink = directLink;  // 🆕 관리자가 직접 입력한 링크
+  } else if (status === 'O' && folderId) {
+    folderLink = `https://drive.google.com/drive/folders/${folderId}`;
+  }
   
   const weekNum = 주차계산(new Date(date));
   let displayText = '';
@@ -1401,14 +1605,14 @@ function 초기설정() {
 
   Logger.log('트리거 5 설정 완료: 매일 새벽 4시 전날 다이제스트 자동 생성');
 
-  // 🆕 트리거 6: 매일 새벽 6시 주간집계 자동 생성 (진행 중인 주차도 실시간 반영)
-  ScriptApp.newTrigger('이번달주간집계')
+  // 🆕 트리거 6: 매일 새벽 6시 이번 주 주간집계 (빠른 버전)
+  ScriptApp.newTrigger('이번주주간집계')
     .timeBased()
     .atHour(6)
     .everyDays(1)
     .create();
 
-  Logger.log('트리거 6 설정 완료: 매일 새벽 6시 주간집계 자동 생성 (실시간 반영)');
+  Logger.log('트리거 6 설정 완료: 매일 새벽 6시 이번 주 주간집계 (빠른 버전)');
 
   // 🆕 트리거 7: 매월 1일 오전 5시 월간 AI 분석 (전월, 누적된 데이터 사용)
   ScriptApp.newTrigger('월간AI분석_자동실행')
@@ -1513,60 +1717,6 @@ function 초기설정() {
   Logger.log('- "월별결산" 시트에서 월별 통계 확인');
   Logger.log('- 조원별 출석률, 경고/벌칙 상태 한눈에 확인');
   Logger.log('- 중복 날짜는 자동으로 하나만 처리');
-}
-
-/**
- * 수동 테스트용
- */
-function 테스트실행() {
-  출석체크_메인();
-}
-
-/**
- * 마감시간 체크 수동 테스트
- */
-function 마감시간체크_테스트() {
-  마감시간체크();
-}
-
-/**
- * 🆕 장기오프 테스트 (구글 폼 버전)
- * 특정 날짜와 조원의 장기오프 상태 확인
- */
-function 장기오프테스트() {
-  const 테스트조원 = '센트룸';  // ← 테스트할 조원 이름
-  const 테스트날짜 = '2025-10-22';  // ← 테스트할 날짜
-  
-  Logger.log(`=== 장기오프 테스트: ${테스트조원}, ${테스트날짜} ===`);
-  
-  const result = 장기오프확인(테스트조원, 테스트날짜);
-  
-  if (result.isLongOff) {
-    Logger.log(`✅ 장기오프 기간입니다!`);
-    Logger.log(`    사유: ${result.reason}`);
-  } else {
-    Logger.log(`❌ 장기오프 기간이 아닙니다.`);
-  }
-  
-  Logger.log('=== 테스트 완료 ===');
-  
-  // 폼 응답 시트 구조 확인
-  Logger.log('');
-  Logger.log('=== 폼 응답 시트 구조 확인 ===');
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.LONG_OFF_SHEET);
-  
-  if (sheet) {
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    Logger.log('헤더: ' + JSON.stringify(headers));
-    
-    if (sheet.getLastRow() > 1) {
-      const firstData = sheet.getRange(2, 1, 1, sheet.getLastColumn()).getValues()[0];
-      Logger.log('첫 번째 데이터: ' + JSON.stringify(firstData));
-    }
-  } else {
-    Logger.log('⚠️ 시트를 찾을 수 없음: ' + CONFIG.LONG_OFF_SHEET);
-  }
 }
 
 /**
@@ -2056,49 +2206,51 @@ function 관리자수정시트_생성() {
   // 새 시트 생성
   const sheet = ss.insertSheet('관리자수정');
   
-  // 헤더 설정
-  const headers = ['조원 이름', '날짜 (YYYY-MM-DD)', '상태', '사유 (선택)', '처리상태', '처리시간'];
+  // 헤더 설정 (파일링크는 맨 끝)
+  const headers = ['조원 이름', '날짜 (YYYY-MM-DD)', '상태', '사유 (선택)', '처리상태', '처리시간', '파일링크 (선택)'];
   sheet.appendRow(headers);
-  
+
   // 헤더 스타일
-  sheet.getRange('A1:F1')
+  sheet.getRange('A1:G1')
     .setFontWeight('bold')
     .setBackground('#FF9800')
     .setFontColor('white')
     .setHorizontalAlignment('center');
-  
+
   // 열 너비 조정
   sheet.setColumnWidth(1, 100);  // 조원 이름
   sheet.setColumnWidth(2, 150);  // 날짜
   sheet.setColumnWidth(3, 100);  // 상태
-  sheet.setColumnWidth(4, 300);  // 사유
-  sheet.setColumnWidth(5, 250);  // 처리상태
+  sheet.setColumnWidth(4, 200);  // 사유
+  sheet.setColumnWidth(5, 100);  // 처리상태
   sheet.setColumnWidth(6, 150);  // 처리시간
-  
-  // 예시 데이터 3개 추가
+  sheet.setColumnWidth(7, 300);  // 파일링크
+
+  // 예시 데이터 3개 추가 (파일링크는 맨 끝)
   const examples = [
-    ['센트룸', '2025-10-15', 'O', 'Google Drive 동기화 오류', '', ''],
-    ['길', '2025-10-16', '출석', '정전으로 업로드 지연', '', ''],
-    ['what', '2025-10-17', 'OFF', '긴급 병원 진료', '', '']
+    ['센트룸', '2025-10-15', 'O', 'Drive 동기화 오류', '', '', ''],
+    ['길', '2025-10-16', '출석', '업로드 지연', '', '', 'https://drive.google.com/...'],
+    ['what', '2025-10-17', 'OFF', '병원 진료', '', '', '']
   ];
-  
+
   examples.forEach(example => {
     sheet.appendRow(example);
   });
-  
+
   // 예시 데이터는 연한 노란색
-  sheet.getRange(2, 1, 3, 6).setBackground('#fff9c4');
-  
+  sheet.getRange(2, 1, 3, 7).setBackground('#fff9c4');
+
   // 안내문 추가
   sheet.getRange('A5').setValue('📝 사용 방법:');
   sheet.getRange('A6').setValue('1. 위 예시를 참고하여 새 행에 정보 입력');
   sheet.getRange('A7').setValue('2. 상태는 "O", "OFF", "LONG_OFF", "X" 또는 "출석", "오프", "장기오프", "결석" 입력');
-  sheet.getRange('A8').setValue('3. 트리거가 1시간마다 자동 처리하거나, "관리자수정_자동처리" 함수 직접 실행');
-  sheet.getRange('A9').setValue('4. 처리 완료되면 "처리상태" 열에 ✅ 표시됨');
-  sheet.getRange('A10').setValue('');
-  sheet.getRange('A11').setValue('⚠️ 주의: 예시 데이터는 삭제하거나 "처리상태"를 "⏭️ 스킵"으로 변경하세요');
-  
-  sheet.getRange('A5:A11').setFontWeight('bold').setFontColor('#666666');
+  sheet.getRange('A8').setValue('3. 파일링크는 선택사항 - 비워두면 ✓만, 입력하면 ✓📁 표시');
+  sheet.getRange('A9').setValue('4. 트리거가 1시간마다 자동 처리하거나, "관리자수정_자동처리" 함수 직접 실행');
+  sheet.getRange('A10').setValue('5. 처리 완료되면 "처리상태" 열에 완료 표시됨');
+  sheet.getRange('A11').setValue('');
+  sheet.getRange('A12').setValue('⚠️ 주의: 예시 데이터는 삭제하거나 "처리상태"를 "⏭️ 스킵"으로 변경하세요');
+
+  sheet.getRange('A5:A12').setFontWeight('bold').setFontColor('#666666');
   
   // 데이터 유효성 검사 (상태 열)
   const statusRule = SpreadsheetApp.newDataValidation()
@@ -2157,182 +2309,6 @@ function 관리자수정시트_초기화() {
   }
   
   Logger.log(`✅ ${deletedCount}개 행 삭제 완료`);
-}
-
-// ==================== 관리자 함수 사용 예시 ====================
-
-/**
- * 예시 1: 단일 기록 수정
- * 센트룸의 10월 15일 출석을 출석(O)으로 변경
- */
-function 예시_단일수정() {
-  관리자_출석수정(
-    '센트룸',              // 조원 이름
-    '2025-10-15',       // 날짜
-    'O',                // 상태: 'O'(출석), 'OFF'(오프), 'LONG_OFF'(장기오프), 'X'(결석)
-    '시스템 오류 수정',   // 사유
-    true                // 덮어쓰기: true
-  );
-}
-
-/**
- * 예시 2: 결석을 출석으로 변경
- */
-function 예시_결석을출석으로() {
-  관리자_출석수정('길', '2025-10-16', 'O', '인증 누락, 관리자 확인 후 출석 처리');
-}
-
-/**
- * 예시 3: 출석을 오프로 변경
- */
-function 예시_출석을오프로() {
-  관리자_출석수정('what', '2025-10-17', 'OFF', '사후 오프 신청 승인');
-}
-
-/**
- * 예시 4: 일괄 수정
- * 여러 조원의 기록을 한 번에 수정
- */
-function 예시_일괄수정() {
-  const 수정목록 = [
-    {
-      name: '센트룸',
-      date: '2025-10-15',
-      status: 'O',
-      reason: '정전으로 인한 업로드 지연'
-    },
-    {
-      name: '길',
-      date: '2025-10-15',
-      status: 'O',
-      reason: '정전으로 인한 업로드 지연'
-    },
-    {
-      name: 'what',
-      date: '2025-10-15',
-      status: 'O',
-      reason: '정전으로 인한 업로드 지연'
-    }
-  ];
-  
-  관리자_일괄수정(수정목록);
-}
-
-/**
- * 예시 5: 기록 삭제
- * 중복되거나 잘못된 기록 삭제
- */
-function 예시_기록삭제() {
-  관리자_기록삭제('센트룸', '2025-10-18');
-}
-
-/**
- * 예시 6: 특정 조원 기록 조회
- */
-function 예시_기록조회() {
-  // 전체 조회
-  관리자_기록조회('센트룸');
-  
-  // 특정 월만 조회
-  // 관리자_기록조회('센트룸', '2025-10');
-}
-
-/**
- * 예시 7: 장기오프로 변경
- */
-function 예시_장기오프로변경() {
-  관리자_출석수정(
-    '녹동',
-    '2025-10-20',
-    'LONG_OFF',
-    '해외 출장 (사후 신청)'
-  );
-}
-
-/**
- * 🆕 폴더 ID 테스트 (여러 폴더 지원)
- * 특정 조원의 폴더에 접근 가능한지 확인
- */
-function 폴더ID테스트() {
-  const 테스트조원 = '센트룸';  // ← 테스트할 조원 이름 (CONFIG.MEMBERS에 있는 이름)
-  
-  Logger.log(`=== 폴더 ID 테스트: ${테스트조원} ===`);
-  Logger.log('');
-  
-  const folderIdOrArray = CONFIG.MEMBERS[테스트조원];
-  
-  if (!folderIdOrArray) {
-    Logger.log(`❌ CONFIG.MEMBERS에 "${테스트조원}" 조원이 없습니다.`);
-    Logger.log('사용 가능한 조원: ' + Object.keys(CONFIG.MEMBERS).join(', '));
-    return;
-  }
-  
-  // 폴더 ID를 배열로 정규화
-  const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
-  
-  Logger.log(`📁 총 ${folderIds.length}개 폴더 테스트`);
-  Logger.log('');
-  
-  // 각 폴더 테스트
-  folderIds.forEach((folderId, index) => {
-    Logger.log(`--- 폴더 ${index + 1}/${folderIds.length} ---`);
-    Logger.log(`폴더 ID: ${folderId}`);
-    
-    try {
-      const folder = DriveApp.getFolderById(folderId);
-      Logger.log(`✅ 폴더 접근 성공: "${folder.getName()}"`);
-      
-      // 하위 폴더 샘플 확인 (최대 5개)
-      const subfolders = folder.getFolders();
-      let count = 0;
-      const sampleFolders = [];
-      
-      while (subfolders.hasNext() && count < 5) {
-        const subfolder = subfolders.next();
-        sampleFolders.push(subfolder.getName());
-        count++;
-      }
-      
-      if (sampleFolders.length > 0) {
-        Logger.log(`📂 하위 폴더 샘플 (최대 5개):`);
-        sampleFolders.forEach(name => {
-          Logger.log(`  - ${name}`);
-        });
-      } else {
-        Logger.log(`⚠️ 하위 폴더가 없습니다.`);
-      }
-      
-      // 파일 샘플 확인 (최대 3개)
-      const files = folder.getFiles();
-      count = 0;
-      const sampleFiles = [];
-      
-      while (files.hasNext() && count < 3) {
-        const file = files.next();
-        sampleFiles.push(file.getName());
-        count++;
-      }
-      
-      if (sampleFiles.length > 0) {
-        Logger.log(`📄 파일 샘플 (최대 3개):`);
-        sampleFiles.forEach(name => {
-          Logger.log(`  - ${name}`);
-        });
-      }
-      
-    } catch (e) {
-      Logger.log(`❌ 폴더 접근 실패: ${e.message}`);
-      Logger.log(`원인:`);
-      Logger.log(`  1. 폴더 ID가 잘못됨`);
-      Logger.log(`  2. 공유 권한이 없음`);
-      Logger.log(`  3. 폴더가 삭제됨`);
-      Logger.log(`해결: Google Drive에서 폴더 URL 다시 확인`);
-    }
-    
-    Logger.log('');
-  });
-  
-  Logger.log('=== 테스트 완료 ===');
 }
 
 // ==================== Web App 배포 ====================
@@ -2568,7 +2544,19 @@ function 다이제스트HTML가져오기(dateStr) {
     // 날짜로 검색 (헤더 제외)
     let fileId = null;
     for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === dateStr) {
+      const cellValue = data[i][0];
+      let cellDateStr;
+
+      // Date 객체인 경우 문자열로 변환
+      if (cellValue instanceof Date) {
+        cellDateStr = Utilities.formatDate(cellValue, 'Asia/Seoul', 'yyyy-MM-dd');
+      } else {
+        cellDateStr = String(cellValue).trim();
+      }
+
+      Logger.log(`  비교: 셀="${cellDateStr}" vs 요청="${dateStr}"`);
+
+      if (cellDateStr === dateStr) {
         fileId = data[i][1];  // 파일ID 컬럼
         Logger.log(`✅ 다이제스트 파일 ID 찾음: ${fileId}`);
         break;
@@ -2674,29 +2662,31 @@ function 최종스캔_특정날짜(targetDateStr) {
 
 /**
  * 🆕 관리자수정 시트 처리
+ * 수정된 월의 JSON을 자동으로 재생성
  */
 function 관리자수정처리() {
   Logger.log('');
   Logger.log('=== 관리자수정 처리 시작 ===');
-  
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const adminSheet = ss.getSheetByName(CONFIG.ADMIN_SHEET);
-  
+
   if (!adminSheet) {
     Logger.log(`⚠️ "${CONFIG.ADMIN_SHEET}" 시트가 없습니다. 건너뜀.`);
-    return;
+    return { processedCount: 0, affectedMonths: [] };
   }
-  
+
   const data = adminSheet.getDataRange().getValues();
-  
+
   if (data.length <= 1) {
     Logger.log('처리할 항목이 없습니다.');
-    return;
+    return { processedCount: 0, affectedMonths: [] };
   }
-  
+
   let processedCount = 0;
   const now = new Date();
-  
+  const affectedMonths = new Set(); // 수정된 월 추적
+
   // 첫 행(헤더) 제외하고 처리
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
@@ -2704,23 +2694,26 @@ function 관리자수정처리() {
     const dateValue = row[CONFIG.ADMIN_COLUMNS.DATE];
     const status = row[CONFIG.ADMIN_COLUMNS.STATUS];
     const reason = row[CONFIG.ADMIN_COLUMNS.REASON] || '';
+    const fileLink = row[CONFIG.ADMIN_COLUMNS.FILE_LINK] || '';  // 🆕 파일링크 (선택)
     const processed = row[CONFIG.ADMIN_COLUMNS.PROCESSED];
-    
+
     // 이미 처리된 항목은 건너뛰기
     if (processed === '완료' || processed === 'O' || processed === '✅') {
       continue;
     }
-    
+
     // 필수 필드 검증
     if (!name || !dateValue || !status) {
       Logger.log(`  ⚠️ ${i + 1}행: 필수 정보 누락 (이름: ${name}, 날짜: ${dateValue}, 상태: ${status})`);
       continue;
     }
-    
+
     // 날짜 포맷 변환
     let dateStr;
+    let dateObj;
     try {
       if (dateValue instanceof Date) {
+        dateObj = dateValue;
         dateStr = Utilities.formatDate(dateValue, 'Asia/Seoul', 'yyyy-MM-dd');
       } else {
         dateStr = String(dateValue).trim();
@@ -2728,18 +2721,20 @@ function 관리자수정처리() {
           Logger.log(`  ❌ ${i + 1}행: 날짜 형식 오류 (${dateStr}). YYYY-MM-DD 형식 사용 필요`);
           continue;
         }
+        const parts = dateStr.split('-');
+        dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
       }
     } catch (e) {
       Logger.log(`  ❌ ${i + 1}행: 날짜 변환 실패 (${dateValue})`);
       continue;
     }
-    
+
     // 조원 이름 검증
     if (!CONFIG.MEMBERS[name]) {
       Logger.log(`  ❌ ${i + 1}행: 알 수 없는 조원 (${name})`);
       continue;
     }
-    
+
     // 상태 값 검증 및 정규화
     let normalizedStatus = status.toString().toUpperCase().trim();
     if (normalizedStatus === 'O' || normalizedStatus === '출석') {
@@ -2754,27 +2749,75 @@ function 관리자수정처리() {
       Logger.log(`  ❌ ${i + 1}행: 알 수 없는 상태 (${status}). O/OFF/X/LONG_OFF 중 하나 사용`);
       continue;
     }
-    
+
     // 출석기록 추가/업데이트
     try {
-      Logger.log(`  🔧 ${name} - ${dateStr} → ${normalizedStatus}${reason ? ' (' + reason + ')' : ''}`);
-      출석기록추가(name, dateStr, [], normalizedStatus, reason);
-      
+      // fileLink를 문자열로 변환 (빈 값이거나 다른 타입일 수 있음)
+      const fileLinkStr = fileLink ? String(fileLink).trim() : '';
+      const linkInfo = fileLinkStr ? ` [링크: ${fileLinkStr.substring(0, 30)}...]` : '';
+      Logger.log(`  🔧 ${name} - ${dateStr} → ${normalizedStatus}${reason ? ' (' + reason + ')' : ''}${linkInfo}`);
+      출석기록추가(name, dateStr, [], normalizedStatus, reason, '', fileLinkStr);
+
+      // 수정된 월 추적 (yyyy-MM 형식)
+      const yearMonth = Utilities.formatDate(dateObj, 'Asia/Seoul', 'yyyy-MM');
+      affectedMonths.add(yearMonth);
+
       // 처리완료 표시
       const rowIndex = i + 1;
+      const formattedTime = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
       adminSheet.getRange(rowIndex, CONFIG.ADMIN_COLUMNS.PROCESSED + 1).setValue('완료');
-      adminSheet.getRange(rowIndex, CONFIG.ADMIN_COLUMNS.PROCESSED_TIME + 1).setValue(now);
-      
+      adminSheet.getRange(rowIndex, CONFIG.ADMIN_COLUMNS.PROCESSED_TIME + 1).setValue(formattedTime);
+
       processedCount++;
     } catch (e) {
       Logger.log(`  ❌ ${i + 1}행: 처리 중 오류 - ${e.message}`);
     }
   }
-  
+
   Logger.log(`✅ 관리자수정 처리 완료: ${processedCount}건`);
+
+  // 수정된 월의 JSON 재생성 (최근 2개월만 처리하여 성능 최적화)
+  const affectedMonthsArray = Array.from(affectedMonths);
+  if (affectedMonthsArray.length > 0) {
+    Logger.log('');
+    Logger.log('=== 수정된 월 JSON 재생성 ===');
+
+    // 현재 날짜 기준으로 최근 2개월만 재생성 (현재월 + 이전월)
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-based
+
+    // 재생성 대상 월 필터링
+    const recentMonths = affectedMonthsArray.filter(yearMonth => {
+      const [year, month] = yearMonth.split('-').map(Number);
+      // 현재월과 이전월만 재생성 (최대 2개월 범위)
+      const monthDiff = (currentYear - year) * 12 + (currentMonth - month);
+      return monthDiff >= 0 && monthDiff <= 1;
+    });
+
+    // 오래된 월은 스킵 로그
+    const skippedMonths = affectedMonthsArray.filter(m => !recentMonths.includes(m));
+    if (skippedMonths.length > 0) {
+      Logger.log(`⏭️ 오래된 월 스킵 (성능 최적화): ${skippedMonths.join(', ')}`);
+    }
+
+    for (const yearMonth of recentMonths) {
+      const [year, month] = yearMonth.split('-').map(Number);
+      Logger.log(`📁 ${year}년 ${month}월 JSON 재생성 중...`);
+      try {
+        특정월JSON생성(year, month);
+        Logger.log(`  ✅ ${year}년 ${month}월 일간 JSON 재생성 완료`);
+      } catch (e) {
+        Logger.log(`  ❌ ${year}년 ${month}월 일간 JSON 재생성 실패: ${e.message}`);
+      }
+
+      // 주간집계는 매일 새벽 이번주주간집계 트리거에서 처리 (성능 최적화)
+    }
+  }
+
   Logger.log('');
-  
-  return processedCount;
+
+  return { processedCount, affectedMonths: affectedMonthsArray };
 }
 
 /**
@@ -2825,11 +2868,17 @@ function 관리자수정존재확인(memberName, dateStr) {
 
 /**
  * 🆕 수동으로 관리자수정만 처리 (테스트용)
+ * 이제 관리자수정처리()가 자동으로 해당 월 JSON을 재생성합니다.
  */
 function 관리자수정만_처리() {
-  관리자수정처리();
-  JSON파일생성();
-  Logger.log('✅ 관리자수정 처리 및 JSON 생성 완료!');
+  const result = 관리자수정처리();
+  Logger.log('');
+  Logger.log('========================================');
+  Logger.log(`✅ 관리자수정 처리 완료: ${result.processedCount}건`);
+  if (result.affectedMonths.length > 0) {
+    Logger.log(`📁 JSON 재생성된 월: ${result.affectedMonths.join(', ')}`);
+  }
+  Logger.log('========================================');
 }
 
 
@@ -3035,14 +3084,6 @@ function 월별결산생성() {
 }
 
 /**
- * 🆕 월별결산 수동 실행 (테스트용)
- */
-function 월별결산_수동실행() {
-  월별결산생성();
-  Logger.log('✅ 월별결산 생성 완료!');
-}
-
-/**
  * 🆕 특정 월의 결산 생성 (수동 실행용)
  * @param {number} year - 연도 (예: 2025)
  * @param {number} month - 월 (1-12)
@@ -3232,66 +3273,6 @@ function 특정월_결산생성(year, month) {
   
   Logger.log(`✅ ${yearMonth} 월별결산 저장 완료: ${summaryData.length}명`);
   Logger.log('');
-}
-
-/**
- * 🆕 10월 결산 생성 (예시)
- */
-function 결산_10월생성() {
-  특정월_결산생성(2025, 10);
-  Logger.log('✅ 2025년 10월 결산 생성 완료!');
-}
-
-function 녹동_폴더링크_복구() {
-  Logger.log('=== 녹동 폴더 링크 복구 시작 ===');
-  
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
-  const data = sheet.getDataRange().getValues();
-  
-  const 녹동폴더ID = CONFIG.MEMBERS['녹동'];
-  const mainFolder = DriveApp.getFolderById(녹동폴더ID);
-  
-  let 수정개수 = 0;
-  
-  for (let i = 1; i < data.length; i++) {
-    const [timestamp, name, dateStr, fileCount, links, folderLink, status] = data[i];
-    
-    // 녹동의 출석 기록이고 폴더 링크가 비어있거나 불완전한 경우
-    if (name === '녹동' && status === 'O' && (!folderLink || folderLink.length < 50)) {
-      
-      const dateFormatted = typeof dateStr === 'string' ? 
-        dateStr : 
-        Utilities.formatDate(new Date(dateStr), 'Asia/Seoul', 'yyyy-MM-dd');
-      
-      Logger.log(`처리 중: ${dateFormatted}`);
-      
-      // 날짜 폴더 찾기
-      const dateFolder = 오늘날짜폴더찾기(mainFolder, dateFormatted);
-      
-      if (dateFolder) {
-        const newFolderLink = `https://drive.google.com/drive/folders/${dateFolder.getId()}`;
-        
-        // 시트의 폴더 링크 열(F열, 6번째) 업데이트
-        sheet.getRange(i + 1, 6).setValue(newFolderLink);
-        
-        Logger.log(`  ✅ 수정 완료: ${newFolderLink}`);
-        수정개수++;
-      } else {
-        Logger.log(`  ⚠️ ${dateFormatted} 폴더를 찾을 수 없음`);
-      }
-    }
-  }
-  
-  Logger.log('');
-  Logger.log(`=== 복구 완료: ${수정개수}개 기록 수정됨 ===`);
-  
-  // JSON 재생성
-  if (수정개수 > 0) {
-    Logger.log('JSON 파일 재생성 중...');
-    JSON파일생성();
-    Logger.log('✅ JSON 파일 재생성 완료!');
-  }
 }
 
 // ==================== 🎯 원클릭 장기오프 시스템 완전 설치 ====================
@@ -3859,6 +3840,187 @@ function 이번달주간집계() {
   const 집계결과 = 월별주간집계(year, month);
   주간집계저장(year, month, 집계결과);
   주간집계JSON저장(year, month, 집계결과);
+}
+
+/**
+ * 🆕 이번 주만 빠르게 집계 (매일 트리거용)
+ * - 월요일 기준으로 주를 판단
+ * - 월초에 월요일이 없는 날들은 이전달 마지막 주로 처리
+ * - 예: 2026년 1월 1~4일(목~일) → 2025년 12월 마지막 주
+ */
+function 이번주주간집계() {
+  const startTime = new Date();
+  Logger.log('=== 이번 주 주간집계 시작 ===');
+
+  const now = new Date();
+
+  // 이번 주 월요일 찾기
+  const 이번주월요일 = new Date(now);
+  const dayOfWeek = now.getDay(); // 0=일, 1=월, ..., 6=토
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  이번주월요일.setDate(now.getDate() - daysFromMonday);
+  이번주월요일.setHours(0, 0, 0, 0);
+
+  // 이번 주 일요일
+  const 이번주일요일 = new Date(이번주월요일);
+  이번주일요일.setDate(이번주월요일.getDate() + 6);
+
+  // 월요일이 속한 월이 이 주의 소속 월
+  const 소속년도 = 이번주월요일.getFullYear();
+  const 소속월 = 이번주월요일.getMonth(); // 0-based
+
+  Logger.log(`오늘: ${Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd (E)')}`);
+  Logger.log(`이번 주: ${Utilities.formatDate(이번주월요일, 'Asia/Seoul', 'MM/dd(E)')} ~ ${Utilities.formatDate(이번주일요일, 'Asia/Seoul', 'MM/dd(E)')}`);
+  Logger.log(`소속: ${소속년도}년 ${소속월 + 1}월`);
+
+  // 이 주가 소속월의 몇 번째 주인지 계산
+  const 주목록 = 월별주목록가져오기(소속년도, 소속월);
+  let 현재주차 = -1;
+
+  for (let i = 0; i < 주목록.length; i++) {
+    const 주 = 주목록[i];
+    if (주.시작.getTime() === 이번주월요일.getTime()) {
+      현재주차 = i + 1;
+      break;
+    }
+  }
+
+  if (현재주차 === -1) {
+    Logger.log('⚠️ 현재 주차를 찾을 수 없습니다.');
+    return;
+  }
+
+  Logger.log(`→ ${소속월 + 1}월 ${현재주차}주차`);
+
+  // 이번 주가 완료되었는지 확인
+  const 오늘자정 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const 완료된주 = 이번주일요일 < 오늘자정;
+
+  // 각 조원별 이번 주 집계
+  const 이번주집계 = {};
+
+  for (const memberName of Object.keys(CONFIG.MEMBERS)) {
+    const 결과 = 주간인증계산(memberName, 이번주월요일, 이번주일요일, 완료된주);
+
+    이번주집계[memberName] = {
+      주차: 현재주차,
+      인증횟수: 결과.인증횟수,
+      장기오프일수: 결과.장기오프일수,
+      필요횟수: 결과.필요횟수,
+      결석: 결과.결석,
+      전체장기오프: 결과.전체장기오프,
+      주완료: 결과.주완료
+    };
+
+    const 상태표시 = 결과.주완료 ? `→ 결석 ${결과.결석}회` : '(진행중)';
+    Logger.log(`  ${memberName}: 인증 ${결과.인증횟수}/${결과.필요횟수}회 ${상태표시}`);
+  }
+
+  // 기존 JSON 파일 읽어서 이번 주만 업데이트
+  이번주JSON업데이트(소속년도, 소속월, 현재주차, 이번주집계, 주목록);
+
+  const endTime = new Date();
+  const 소요시간 = (endTime - startTime) / 1000;
+  Logger.log(`\n=== 이번 주 주간집계 완료 (${소요시간.toFixed(1)}초) ===`);
+}
+
+/**
+ * 이번 주 데이터만 JSON에 업데이트 (전체 재생성 없이)
+ */
+function 이번주JSON업데이트(year, month, 현재주차, 이번주집계, 주목록) {
+  const 년월 = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const fileName = `weekly_summary_${년월}.json`;
+
+  try {
+    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+    const files = folder.getFilesByName(fileName);
+
+    let jsonData;
+
+    if (files.hasNext()) {
+      // 기존 파일이 있으면 읽어서 업데이트
+      const file = files.next();
+      const content = file.getBlob().getDataAsString('UTF-8');
+      jsonData = JSON.parse(content);
+      Logger.log(`📂 기존 JSON 파일 로드: ${fileName}`);
+    } else {
+      // 없으면 새로 생성
+      jsonData = {
+        년월: 년월,
+        생성일: new Date().toISOString(),
+        총주차: 주목록.length,
+        주차정보: 주목록.map((주, idx) => ({
+          주차: idx + 1,
+          시작: Utilities.formatDate(주.시작, 'Asia/Seoul', 'yyyy-MM-dd'),
+          끝: Utilities.formatDate(주.끝, 'Asia/Seoul', 'yyyy-MM-dd')
+        })),
+        규칙설명: {
+          주정의: '월요일~일요일',
+          예시: '11월 25일(월)~12월 1일(일) → 11월 4주차'
+        },
+        조원별집계: {}
+      };
+      Logger.log(`📝 새 JSON 파일 생성: ${fileName}`);
+    }
+
+    // 각 조원별 이번 주차 데이터 업데이트
+    for (const [memberName, weekData] of Object.entries(이번주집계)) {
+      if (!jsonData.조원별집계[memberName]) {
+        jsonData.조원별집계[memberName] = {
+          총결석: 0,
+          주차별: []
+        };
+      }
+
+      const memberData = jsonData.조원별집계[memberName];
+
+      // 해당 주차 데이터 찾아서 업데이트 또는 추가
+      const weekIndex = memberData.주차별.findIndex(w => w.주차 === 현재주차);
+
+      const newWeekData = {
+        주차: 현재주차,
+        인증: weekData.인증횟수,
+        필요: weekData.필요횟수,
+        장기오프: weekData.장기오프일수,
+        결석: weekData.결석,
+        상태: weekData.주완료 ? '완료' : '진행중',
+        전체장기오프: weekData.전체장기오프
+      };
+
+      if (weekIndex >= 0) {
+        memberData.주차별[weekIndex] = newWeekData;
+      } else {
+        memberData.주차별.push(newWeekData);
+        // 주차 순서로 정렬
+        memberData.주차별.sort((a, b) => a.주차 - b.주차);
+      }
+
+      // 총결석 재계산
+      memberData.총결석 = memberData.주차별
+        .filter(w => !w.전체장기오프)
+        .reduce((sum, w) => sum + (w.결석 || 0), 0);
+    }
+
+    // 업데이트 시간 기록
+    jsonData.최종업데이트 = new Date().toISOString();
+
+    // 파일 저장
+    const jsonString = JSON.stringify(jsonData, null, 2);
+
+    // 기존 파일 삭제 후 새로 생성
+    const existingFiles = folder.getFilesByName(fileName);
+    while (existingFiles.hasNext()) {
+      existingFiles.next().setTrashed(true);
+    }
+
+    const newFile = folder.createFile(fileName, jsonString, MimeType.PLAIN_TEXT);
+    newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    Logger.log(`✅ JSON 업데이트 완료: ${현재주차}주차`);
+
+  } catch (e) {
+    Logger.log(`❌ JSON 업데이트 실패: ${e.message}`);
+  }
 }
 
 function JSON파일ID확인() {
@@ -4497,39 +4659,6 @@ function 월간원본수집(yearMonth) {
   Logger.log('='.repeat(60));
 
   return collectionFolder.getUrl();
-}
-
-/**
- * 사용 가능한 Gemini 모델 목록 확인
- */
-function Gemini모델목록확인() {
-  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  if (!apiKey) {
-    Logger.log('❌ GEMINI_API_KEY가 설정되지 않았습니다.');
-    return;
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-
-  try {
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    const result = JSON.parse(response.getContentText());
-
-    if (result.error) {
-      Logger.log('❌ 오류: ' + JSON.stringify(result.error));
-      return;
-    }
-
-    Logger.log('=== 사용 가능한 모델 목록 ===\n');
-    result.models.forEach(model => {
-      Logger.log(`📌 ${model.name}`);
-      Logger.log(`   - 표시명: ${model.displayName}`);
-      Logger.log(`   - 지원 메서드: ${model.supportedGenerationMethods?.join(', ')}`);
-      Logger.log('');
-    });
-  } catch (e) {
-    Logger.log('❌ API 호출 오류: ' + e.message);
-  }
 }
 
 /**
@@ -5498,127 +5627,6 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
 }
 
 /**
- * 수동 실행용: 오늘의 다이제스트 테스트
- */
-function AI다이제스트테스트() {
-  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
-  일일AI다이제스트생성(today);
-}
-
-/**
- * 수동 실행용: 어제의 다이제스트
- */
-function 어제AI다이제스트생성() {
-  일일AI다이제스트생성(); // dateStr 없으면 자동으로 어제
-}
-
-/**
- * 🔍 디버깅: 실제 폴더 구조 확인
- * 한 조원의 폴더 안에 어떤 하위 폴더들이 있는지 확인
- */
-function 실제폴더구조확인() {
-  // 첫 번째 조원의 폴더 ID 가져오기
-  const firstMember = Object.entries(CONFIG.MEMBERS)[0];
-  const memberName = firstMember[0];
-  const folderIdOrArray = firstMember[1];
-  const folderId = Array.isArray(folderIdOrArray) ? folderIdOrArray[0] : folderIdOrArray;
-
-  Logger.log(`=== ${memberName} 폴더 구조 확인 ===`);
-  Logger.log(`폴더 ID: ${folderId}\n`);
-
-  try {
-    const memberFolder = DriveApp.getFolderById(folderId);
-    Logger.log(`📁 조원 폴더: ${memberFolder.getName()}`);
-    Logger.log(`\n하위 폴더 목록:`);
-
-    const subFolders = memberFolder.getFolders();
-    let count = 0;
-
-    while (subFolders.hasNext() && count < 20) {  // 최대 20개만 출력
-      const folder = subFolders.next();
-      const folderName = folder.getName();
-
-      Logger.log(`  ${count + 1}. ${folderName}`);
-
-      // 첫 번째 하위 폴더의 내부도 확인
-      if (count === 0) {
-        Logger.log(`     └─ ${folderName} 안의 하위 폴더:`);
-        const subSubFolders = folder.getFolders();
-        let subCount = 0;
-        while (subSubFolders.hasNext() && subCount < 10) {
-          const subFolder = subSubFolders.next();
-          Logger.log(`        ${subCount + 1}. ${subFolder.getName()}`);
-          subCount++;
-        }
-      }
-
-      count++;
-    }
-
-    if (count === 0) {
-      Logger.log(`  ❌ 하위 폴더가 없습니다!`);
-    } else {
-      Logger.log(`\n총 ${count}개의 하위 폴더가 있습니다.`);
-    }
-
-  } catch (e) {
-    Logger.log(`❌ 오류 발생: ${e.message}`);
-    Logger.log(e.stack);
-  }
-}
-
-/**
- * 🔍 다이제스트 저장 폴더 확인
- * 다이제스트 파일이 저장되는 폴더의 이름과 URL을 출력
- */
-function AI저장폴더확인() {
-  try {
-    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
-    const folderName = folder.getName();
-    const folderUrl = folder.getUrl();
-
-    Logger.log(`=== 다이제스트 저장 위치 ===`);
-    Logger.log(`폴더명: ${folderName}`);
-    Logger.log(`폴더 URL: ${folderUrl}`);
-    Logger.log(`폴더 ID: ${CONFIG.JSON_FOLDER_ID}`);
-
-    Logger.log(`\n최근 생성된 다이제스트 파일:`);
-    const files = folder.getFiles();
-    const digestFiles = [];
-
-    while (files.hasNext()) {
-      const file = files.next();
-      const fileName = file.getName();
-      if (fileName.startsWith('full-content-') || fileName.startsWith('summary-') || fileName.startsWith('digest-')) {
-        digestFiles.push({
-          name: fileName,
-          date: file.getLastUpdated(),
-          url: file.getUrl()
-        });
-      }
-    }
-
-    // 날짜 순으로 정렬
-    digestFiles.sort((a, b) => b.date - a.date);
-
-    // 최근 10개만 출력
-    digestFiles.slice(0, 10).forEach((file, index) => {
-      Logger.log(`  ${index + 1}. ${file.name}`);
-      Logger.log(`     수정일: ${Utilities.formatDate(file.date, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')}`);
-      Logger.log(`     URL: ${file.url}`);
-    });
-
-    if (digestFiles.length === 0) {
-      Logger.log(`  ❌ 다이제스트 파일이 없습니다.`);
-    }
-
-  } catch (e) {
-    Logger.log(`❌ 오류 발생: ${e.message}`);
-    Logger.log(e.stack);
-  }
-}
-
-/**
  * 🆕 PDF 텍스트 추출 함수
  * Google Drive OCR을 사용하여 PDF에서 텍스트 추출
  * @param {File} pdfFile - Google Drive PDF 파일 객체
@@ -5696,43 +5704,5 @@ function PDF텍스트추출(pdfFile) {
     }
 
     return '';
-  }
-}
-
-/**
- * 🧪 PDF OCR 테스트 함수
- * 특정 PDF 파일의 텍스트 추출을 테스트
- */
-function PDF_OCR_테스트() {
-  // 테스트할 PDF 파일 ID를 입력하세요
-  const 테스트PDF_ID = '';  // ← 여기에 PDF 파일 ID 입력
-
-  if (!테스트PDF_ID) {
-    Logger.log('❌ 테스트할 PDF 파일 ID를 입력해주세요.');
-    Logger.log('사용법: 테스트PDF_ID 변수에 PDF 파일 ID를 입력');
-    return;
-  }
-
-  try {
-    const file = DriveApp.getFileById(테스트PDF_ID);
-    Logger.log(`=== PDF OCR 테스트 ===`);
-    Logger.log(`파일명: ${file.getName()}`);
-    Logger.log(`\n텍스트 추출 중...`);
-
-    const text = PDF텍스트추출(file);
-
-    if (text) {
-      Logger.log(`\n✅ 추출 성공! (${text.length}자)`);
-      Logger.log(`\n--- 추출된 텍스트 ---`);
-      Logger.log(text.substring(0, 2000));  // 처음 2000자만 출력
-      if (text.length > 2000) {
-        Logger.log(`\n... (${text.length - 2000}자 더 있음)`);
-      }
-    } else {
-      Logger.log(`\n❌ 텍스트 추출 실패 (이미지 PDF이거나 빈 문서)`);
-    }
-
-  } catch (e) {
-    Logger.log(`❌ 오류: ${e.message}`);
   }
 }
