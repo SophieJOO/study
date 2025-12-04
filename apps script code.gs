@@ -540,12 +540,7 @@ function 마감시간체크() {
     const [year, month] = yearMonth.split('-').map(Number);
     Logger.log(`이전 달 JSON 재생성: ${year}년 ${month}월`);
     특정월JSON생성(year, month);           // 1-based month
-
-    Logger.log(`이전 달 주간집계 재생성: ${year}년 ${month}월`);
-    const zeroBasedMonth = month - 1;      // 0-based month (1월=0, 12월=11)
-    const 집계결과 = 월별주간집계(year, zeroBasedMonth);
-    주간집계저장(year, zeroBasedMonth, 집계결과);
-    주간집계JSON저장(year, zeroBasedMonth, 집계결과);
+    // 주간집계는 매일 새벽 이번주주간집계 트리거에서 처리 (성능 최적화)
   }
 }
 
@@ -2612,16 +2607,7 @@ function 관리자수정처리() {
         Logger.log(`  ❌ ${year}년 ${month}월 일간 JSON 재생성 실패: ${e.message}`);
       }
 
-      // 주간집계도 재생성 (월별주간집계는 0-based month 사용)
-      try {
-        const zeroBasedMonth = month - 1;
-        const 집계결과 = 월별주간집계(year, zeroBasedMonth);
-        주간집계저장(year, zeroBasedMonth, 집계결과);
-        주간집계JSON저장(year, zeroBasedMonth, 집계결과);
-        Logger.log(`  ✅ ${year}년 ${month}월 주간집계 재생성 완료`);
-      } catch (e) {
-        Logger.log(`  ❌ ${year}년 ${month}월 주간집계 재생성 실패: ${e.message}`);
-      }
+      // 주간집계는 매일 새벽 이번주주간집계 트리거에서 처리 (성능 최적화)
     }
   }
 
