@@ -78,6 +78,210 @@ const CONFIG = {
   MAX_FOLDERS_TO_SCAN: 100  // 마지막 항목은 콤마 없어도 OK
 };
 
+// ==================== 📋 시트 메뉴 ====================
+
+/**
+ * 시트 열 때 자동으로 커스텀 메뉴 생성
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('📊 출석관리')
+    .addItem('🗑️ 오래된 데이터 정리...', '오래된데이터정리_다이얼로그')
+    .addItem('📅 특정 월 데이터 삭제...', '특정월데이터삭제_다이얼로그')
+    .addSeparator()
+    .addItem('🔄 이번 주 주간집계 실행', '이번주주간집계')
+    .addItem('📄 이번 달 JSON 재생성', 'JSON파일생성')
+    .addSeparator()
+    .addItem('⚙️ 초기설정 (트리거 재설정)', '초기설정')
+    .addToUi();
+}
+
+/**
+ * 오래된 데이터 정리 다이얼로그
+ */
+function 오래된데이터정리_다이얼로그() {
+  const ui = SpreadsheetApp.getUi();
+  const result = ui.prompt(
+    '🗑️ 오래된 데이터 정리',
+    '최근 몇 개월의 데이터를 유지할까요? (예: 2 입력 시 현재월 + 이전월만 유지)\n\n' +
+    '⚠️ 주의: 삭제된 데이터는 복구할 수 없습니다!',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (result.getSelectedButton() === ui.Button.OK) {
+    const monthsToKeep = parseInt(result.getResponseText());
+
+    if (isNaN(monthsToKeep) || monthsToKeep < 1) {
+      ui.alert('❌ 오류', '1 이상의 숫자를 입력해주세요.', ui.ButtonSet.OK);
+      return;
+    }
+
+    const confirmResult = ui.alert(
+      '⚠️ 확인',
+      `최근 ${monthsToKeep}개월 데이터만 유지하고 나머지를 삭제합니다.\n정말 진행하시겠습니까?`,
+      ui.ButtonSet.YES_NO
+    );
+
+    if (confirmResult === ui.Button.YES) {
+      const deletedCount = 오래된데이터정리(monthsToKeep);
+      ui.alert('✅ 완료', `${deletedCount}개의 오래된 기록이 삭제되었습니다.`, ui.ButtonSet.OK);
+    }
+  }
+}
+
+/**
+ * 특정 월 데이터 삭제 다이얼로그
+ */
+function 특정월데이터삭제_다이얼로그() {
+  const ui = SpreadsheetApp.getUi();
+  const result = ui.prompt(
+    '📅 특정 월 데이터 삭제',
+    '삭제할 연월을 입력하세요 (예: 2025-10)\n\n' +
+    '⚠️ 주의: 삭제된 데이터는 복구할 수 없습니다!',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (result.getSelectedButton() === ui.Button.OK) {
+    const yearMonth = result.getResponseText().trim();
+
+    // 형식 검증 (YYYY-MM)
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      ui.alert('❌ 오류', 'YYYY-MM 형식으로 입력해주세요. (예: 2025-10)', ui.ButtonSet.OK);
+      return;
+    }
+
+    const confirmResult = ui.alert(
+      '⚠️ 확인',
+      `${yearMonth} 데이터를 모두 삭제합니다.\n정말 진행하시겠습니까?`,
+      ui.ButtonSet.YES_NO
+    );
+
+    if (confirmResult === ui.Button.YES) {
+      const deletedCount = 특정월데이터삭제(yearMonth);
+      ui.alert('✅ 완료', `${yearMonth}: ${deletedCount}개의 기록이 삭제되었습니다.`, ui.ButtonSet.OK);
+    }
+  }
+}
+
+/**
+ * 오래된 출석 데이터 정리
+ * @param {number} monthsToKeep - 유지할 개월 수 (현재월 포함)
+ * @returns {number} 삭제된 행 수
+ */
+function 오래된데이터정리(monthsToKeep = 2) {
+  Logger.log(`=== 오래된 데이터 정리 시작 (최근 ${monthsToKeep}개월 유지) ===`);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+  if (!sheet) {
+    Logger.log('❌ 출석 시트를 찾을 수 없습니다.');
+    return 0;
+  }
+
+  // 유지할 연월 목록 생성
+  const now = new Date();
+  const keepMonths = new Set();
+
+  for (let i = 0; i < monthsToKeep; i++) {
+    const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const yearMonth = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+    keepMonths.add(yearMonth);
+  }
+
+  Logger.log(`유지할 월: ${Array.from(keepMonths).join(', ')}`);
+
+  // 데이터 가져오기
+  const data = sheet.getDataRange().getValues();
+  const rowsToDelete = [];
+
+  // 날짜 컬럼 (3번째 = index 2)
+  for (let i = 1; i < data.length; i++) {
+    const dateValue = data[i][2];  // 날짜 컬럼
+
+    if (!dateValue) continue;
+
+    let dateStr;
+    if (dateValue instanceof Date) {
+      dateStr = Utilities.formatDate(dateValue, 'Asia/Seoul', 'yyyy-MM-dd');
+    } else {
+      dateStr = String(dateValue).trim();
+    }
+
+    const yearMonth = dateStr.substring(0, 7);  // "2025-10"
+
+    if (!keepMonths.has(yearMonth)) {
+      rowsToDelete.push(i + 1);  // 1-based row number
+    }
+  }
+
+  Logger.log(`삭제 대상: ${rowsToDelete.length}개 행`);
+
+  // 뒤에서부터 삭제 (인덱스 변경 방지)
+  for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+    sheet.deleteRow(rowsToDelete[i]);
+  }
+
+  Logger.log(`✅ ${rowsToDelete.length}개 행 삭제 완료`);
+
+  // JSON 재생성
+  if (rowsToDelete.length > 0) {
+    Logger.log('JSON 파일 재생성 중...');
+    JSON파일생성();
+    Logger.log('✅ JSON 파일 재생성 완료');
+  }
+
+  return rowsToDelete.length;
+}
+
+/**
+ * 특정 월의 출석 데이터 삭제
+ * @param {string} yearMonth - 삭제할 연월 (예: "2025-10")
+ * @returns {number} 삭제된 행 수
+ */
+function 특정월데이터삭제(yearMonth) {
+  Logger.log(`=== ${yearMonth} 데이터 삭제 시작 ===`);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+  if (!sheet) {
+    Logger.log('❌ 출석 시트를 찾을 수 없습니다.');
+    return 0;
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const rowsToDelete = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const dateValue = data[i][2];  // 날짜 컬럼
+
+    if (!dateValue) continue;
+
+    let dateStr;
+    if (dateValue instanceof Date) {
+      dateStr = Utilities.formatDate(dateValue, 'Asia/Seoul', 'yyyy-MM-dd');
+    } else {
+      dateStr = String(dateValue).trim();
+    }
+
+    if (dateStr.startsWith(yearMonth)) {
+      rowsToDelete.push(i + 1);  // 1-based row number
+    }
+  }
+
+  Logger.log(`${yearMonth}: ${rowsToDelete.length}개 행 삭제 예정`);
+
+  // 뒤에서부터 삭제
+  for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+    sheet.deleteRow(rowsToDelete[i]);
+  }
+
+  Logger.log(`✅ ${rowsToDelete.length}개 행 삭제 완료`);
+
+  return rowsToDelete.length;
+}
+
 // ==================== 메인 함수 ====================
 
 /**
