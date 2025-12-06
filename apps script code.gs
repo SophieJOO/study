@@ -4284,7 +4284,8 @@ function 마크다운을HTML로(markdown) {
  * @returns {string} 생성된 다이제스트
  */
 function 일일AI다이제스트생성(dateStr) {
-  if (!dateStr) {
+  // 트리거 호출 시 이벤트 객체가 전달되므로 문자열인지 확인
+  if (!dateStr || typeof dateStr !== 'string') {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     dateStr = Utilities.formatDate(yesterday, 'Asia/Seoul', 'yyyy-MM-dd');
