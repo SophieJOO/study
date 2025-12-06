@@ -2371,7 +2371,7 @@ function doGet(e) {
         return ContentService
           .createTextOutput(JSON.stringify({
             error: true,
-            message: '주간 통계 파일이 없습니다. 이번달주간집계() 함수를 실행해주세요.'
+            message: '주간 통계 파일이 없습니다. 이번주주간집계() 함수를 실행해주세요.'
           }))
           .setMimeType(ContentService.MimeType.JSON);
       }
@@ -3832,16 +3832,6 @@ function 주간집계자동실행() {
   주간집계JSON저장(year, month, 집계결과);
 }
 
-function 이번달주간집계() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-
-  const 집계결과 = 월별주간집계(year, month);
-  주간집계저장(year, month, 집계결과);
-  주간집계JSON저장(year, month, 집계결과);
-}
-
 /**
  * 🆕 이번 주만 빠르게 집계 (매일 트리거용)
  * - 월요일 기준으로 주를 판단
@@ -4074,7 +4064,7 @@ function JSON파일ID확인() {
     Logger.log('');
   } else {
     Logger.log('❌ 주간 집계 파일을 찾을 수 없습니다: ' + weeklyFileName);
-    Logger.log('   → 먼저 이번달주간집계() 함수를 실행해주세요!');
+    Logger.log('   → 먼저 이번주주간집계() 함수를 실행해주세요!');
     Logger.log('');
   }
 
