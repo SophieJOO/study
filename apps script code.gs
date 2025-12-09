@@ -3833,6 +3833,55 @@ function 주간집계자동실행() {
 }
 
 /**
+ * 🆕 지난주 결석 확정 (매주 월요일 트리거용)
+ * - 지난주를 "완료" 상태로 변경하고 결석 확정
+ * - 이미 완료된 경우 스킵
+ */
+function 지난주결석확정() {
+  const startTime = new Date();
+  Logger.log('=== 지난주 결석 확정 시작 ===');
+
+  const now = new Date();
+
+  // 이번 주 월요일 찾기
+  const 이번주월요일 = new Date(now);
+  const dayOfWeek = now.getDay();
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  이번주월요일.setDate(now.getDate() - daysFromMonday);
+  이번주월요일.setHours(0, 0, 0, 0);
+
+  // 지난 주 월요일/일요일
+  const 지난주월요일 = new Date(이번주월요일);
+  지난주월요일.setDate(지난주월요일.getDate() - 7);
+  const 지난주일요일 = new Date(지난주월요일);
+  지난주일요일.setDate(지난주월요일.getDate() + 6);
+
+  const 오늘자정 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // 지난주가 완료되었는지 확인
+  if (지난주일요일 >= 오늘자정) {
+    Logger.log('⚠️ 지난주가 아직 끝나지 않았습니다.');
+    return;
+  }
+
+  // 이미 완료 처리됐는지 확인
+  const 지난주이미완료 = 주차완료여부확인(지난주월요일);
+  if (지난주이미완료) {
+    Logger.log('📌 지난주는 이미 완료 처리됨 (스킵)');
+    const endTime = new Date();
+    Logger.log(`=== 완료 (${((endTime - startTime) / 1000).toFixed(1)}초) ===`);
+    return;
+  }
+
+  // 지난주 완료 처리
+  지난주완료처리(지난주월요일, 지난주일요일);
+
+  const endTime = new Date();
+  const 소요시간 = (endTime - startTime) / 1000;
+  Logger.log(`\n=== 지난주 결석 확정 완료 (${소요시간.toFixed(1)}초) ===`);
+}
+
+/**
  * 🆕 이번 주만 빠르게 집계 (매일 트리거용)
  * - 월요일 기준으로 주를 판단
  * - 월초에 월요일이 없는 날들은 이전달 마지막 주로 처리
@@ -3854,6 +3903,11 @@ function 이번주주간집계() {
   // 이번 주 일요일
   const 이번주일요일 = new Date(이번주월요일);
   이번주일요일.setDate(이번주월요일.getDate() + 6);
+
+  const 오늘자정 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // 이번 주 처리
+  Logger.log('📌 이번 주 집계');
 
   // 월요일이 속한 월이 이 주의 소속 월
   const 소속년도 = 이번주월요일.getFullYear();
@@ -3883,7 +3937,6 @@ function 이번주주간집계() {
   Logger.log(`→ ${소속월 + 1}월 ${현재주차}주차`);
 
   // 이번 주가 완료되었는지 확인
-  const 오늘자정 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const 완료된주 = 이번주일요일 < 오늘자정;
 
   // 각 조원별 이번 주 집계
@@ -3912,6 +3965,108 @@ function 이번주주간집계() {
   const endTime = new Date();
   const 소요시간 = (endTime - startTime) / 1000;
   Logger.log(`\n=== 이번 주 주간집계 완료 (${소요시간.toFixed(1)}초) ===`);
+}
+
+/**
+ * 지난주 완료 처리 (결석 확정)
+ */
+function 지난주완료처리(지난주월요일, 지난주일요일) {
+  const 소속년도 = 지난주월요일.getFullYear();
+  const 소속월 = 지난주월요일.getMonth();
+
+  Logger.log(`지난주: ${Utilities.formatDate(지난주월요일, 'Asia/Seoul', 'MM/dd(E)')} ~ ${Utilities.formatDate(지난주일요일, 'Asia/Seoul', 'MM/dd(E)')}`);
+  Logger.log(`소속: ${소속년도}년 ${소속월 + 1}월`);
+
+  const 주목록 = 월별주목록가져오기(소속년도, 소속월);
+  let 지난주차 = -1;
+
+  for (let i = 0; i < 주목록.length; i++) {
+    const 주 = 주목록[i];
+    if (주.시작.getTime() === 지난주월요일.getTime()) {
+      지난주차 = i + 1;
+      break;
+    }
+  }
+
+  if (지난주차 === -1) {
+    Logger.log('⚠️ 지난주 주차를 찾을 수 없습니다.');
+    return;
+  }
+
+  Logger.log(`→ ${소속월 + 1}월 ${지난주차}주차 (완료 처리)`);
+
+  // 각 조원별 지난주 집계 (완료 상태로)
+  const 지난주집계 = {};
+
+  for (const memberName of Object.keys(CONFIG.MEMBERS)) {
+    const 결과 = 주간인증계산(memberName, 지난주월요일, 지난주일요일, true);
+
+    지난주집계[memberName] = {
+      주차: 지난주차,
+      인증횟수: 결과.인증횟수,
+      장기오프일수: 결과.장기오프일수,
+      필요횟수: 결과.필요횟수,
+      결석: 결과.결석,
+      전체장기오프: 결과.전체장기오프,
+      주완료: true  // 강제로 완료
+    };
+
+    Logger.log(`  ${memberName}: 인증 ${결과.인증횟수}/${결과.필요횟수}회 → 결석 ${결과.결석}회`);
+  }
+
+  // JSON 업데이트
+  이번주JSON업데이트(소속년도, 소속월, 지난주차, 지난주집계, 주목록);
+}
+
+/**
+ * 주차가 이미 완료 처리되었는지 JSON에서 확인
+ */
+function 주차완료여부확인(주월요일) {
+  const 소속년도 = 주월요일.getFullYear();
+  const 소속월 = 주월요일.getMonth();
+  const 년월 = `${소속년도}-${String(소속월 + 1).padStart(2, '0')}`;
+  const fileName = `weekly_summary_${년월}.json`;
+
+  try {
+    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+    const files = folder.getFilesByName(fileName);
+
+    if (!files.hasNext()) {
+      return false;  // 파일이 없으면 완료 안 됨
+    }
+
+    const file = files.next();
+    const content = file.getBlob().getDataAsString('UTF-8');
+    const jsonData = JSON.parse(content);
+
+    // 해당 주차 찾기
+    const 주목록 = 월별주목록가져오기(소속년도, 소속월);
+    let 주차 = -1;
+
+    for (let i = 0; i < 주목록.length; i++) {
+      if (주목록[i].시작.getTime() === 주월요일.getTime()) {
+        주차 = i + 1;
+        break;
+      }
+    }
+
+    if (주차 === -1) return false;
+
+    // 첫 번째 조원의 해당 주차 데이터 확인
+    const 첫번째조원 = Object.keys(jsonData.조원별집계)[0];
+    if (!첫번째조원) return false;
+
+    const 주차별 = jsonData.조원별집계[첫번째조원].주차별;
+    const 해당주차 = 주차별.find(w => w.주차 === 주차);
+
+    if (!해당주차) return false;
+
+    return 해당주차.상태 === '완료';
+
+  } catch (e) {
+    Logger.log(`주차완료여부 확인 오류: ${e.message}`);
+    return false;
+  }
 }
 
 /**
