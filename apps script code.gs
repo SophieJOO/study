@@ -3833,11 +3833,59 @@ function 주간집계자동실행() {
 }
 
 /**
+ * 🆕 지난주 결석 확정 (매주 월요일 트리거용)
+ * - 지난주를 "완료" 상태로 변경하고 결석 확정
+ * - 이미 완료된 경우 스킵
+ */
+function 지난주결석확정() {
+  const startTime = new Date();
+  Logger.log('=== 지난주 결석 확정 시작 ===');
+
+  const now = new Date();
+
+  // 이번 주 월요일 찾기
+  const 이번주월요일 = new Date(now);
+  const dayOfWeek = now.getDay();
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  이번주월요일.setDate(now.getDate() - daysFromMonday);
+  이번주월요일.setHours(0, 0, 0, 0);
+
+  // 지난 주 월요일/일요일
+  const 지난주월요일 = new Date(이번주월요일);
+  지난주월요일.setDate(지난주월요일.getDate() - 7);
+  const 지난주일요일 = new Date(지난주월요일);
+  지난주일요일.setDate(지난주월요일.getDate() + 6);
+
+  const 오늘자정 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // 지난주가 완료되었는지 확인
+  if (지난주일요일 >= 오늘자정) {
+    Logger.log('⚠️ 지난주가 아직 끝나지 않았습니다.');
+    return;
+  }
+
+  // 이미 완료 처리됐는지 확인
+  const 지난주이미완료 = 주차완료여부확인(지난주월요일);
+  if (지난주이미완료) {
+    Logger.log('📌 지난주는 이미 완료 처리됨 (스킵)');
+    const endTime = new Date();
+    Logger.log(`=== 완료 (${((endTime - startTime) / 1000).toFixed(1)}초) ===`);
+    return;
+  }
+
+  // 지난주 완료 처리
+  지난주완료처리(지난주월요일, 지난주일요일);
+
+  const endTime = new Date();
+  const 소요시간 = (endTime - startTime) / 1000;
+  Logger.log(`\n=== 지난주 결석 확정 완료 (${소요시간.toFixed(1)}초) ===`);
+}
+
+/**
  * 🆕 이번 주만 빠르게 집계 (매일 트리거용)
  * - 월요일 기준으로 주를 판단
  * - 월초에 월요일이 없는 날들은 이전달 마지막 주로 처리
  * - 예: 2026년 1월 1~4일(목~일) → 2025년 12월 마지막 주
- * - 지난주가 방금 끝났으면 지난주도 함께 완료 처리
  */
 function 이번주주간집계() {
   const startTime = new Date();
@@ -3856,27 +3904,9 @@ function 이번주주간집계() {
   const 이번주일요일 = new Date(이번주월요일);
   이번주일요일.setDate(이번주월요일.getDate() + 6);
 
-  // 지난 주 월요일/일요일
-  const 지난주월요일 = new Date(이번주월요일);
-  지난주월요일.setDate(지난주월요일.getDate() - 7);
-  const 지난주일요일 = new Date(지난주월요일);
-  지난주일요일.setDate(지난주월요일.getDate() + 6);
-
   const 오늘자정 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  // 지난주가 완료되었고, 아직 JSON에 완료 처리 안 됐으면 처리
-  if (지난주일요일 < 오늘자정) {
-    const 지난주이미완료 = 주차완료여부확인(지난주월요일);
-    if (!지난주이미완료) {
-      Logger.log('📌 지난주 완료 처리 (결석 확정)');
-      지난주완료처리(지난주월요일, 지난주일요일);
-    } else {
-      Logger.log('📌 지난주는 이미 완료 처리됨 (스킵)');
-    }
-  }
-
   // 이번 주 처리
-  Logger.log('');
   Logger.log('📌 이번 주 집계');
 
   // 월요일이 속한 월이 이 주의 소속 월
