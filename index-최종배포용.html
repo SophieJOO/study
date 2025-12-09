@@ -257,51 +257,6 @@
             color: #999;
         }
 
-        .summary {
-            margin-top: 30px;
-            padding: 20px;
-            border: 2px solid #4CAF50;
-            border-radius: 8px;
-            background-color: #f1f8e9;
-        }
-        .summary h2 {
-            margin-top: 0;
-            color: #2e7d32;
-        }
-        .member-summary {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 15px;
-            margin-top: 15px;
-        }
-        .member-card {
-            padding: 15px;
-            background: white;
-            border-radius: 5px;
-            border-left: 4px solid #4CAF50;
-        }
-        .member-card.warning {
-            border-left-color: #ff9800;
-        }
-        .member-card.penalty {
-            border-left-color: #f44336;
-        }
-        .warning-text {
-            color: #ff9800;
-            font-weight: bold;
-        }
-        .penalty-text {
-            color: #f44336;
-            font-weight: bold;
-        }
-        .off-text {
-            color: #f57f17;
-            font-weight: normal;
-        }
-        .long-off-text {
-            color: #0277bd;
-            font-weight: normal;
-        }
         .download-icon {
             cursor: pointer;
             text-decoration: none;
@@ -355,9 +310,6 @@
                 padding: 8px 4px;
                 font-size: 12px;
             }
-            .member-summary {
-                grid-template-columns: 1fr;
-            }
             #weeklySummary table {
                 font-size: 12px;
             }
@@ -381,9 +333,6 @@
                 print-color-adjust: exact;
             }
             .rules-box {
-                page-break-inside: avoid;
-            }
-            .summary {
                 page-break-inside: avoid;
             }
         }
@@ -483,14 +432,6 @@
                     <!-- 데이터는 JS로 생성 -->
                 </tbody>
             </table>
-
-            <!-- 요약 정보 -->
-            <div class="summary">
-                <h2>📊 <span id="summaryMonth"></span> 출석 요약 (1일 ~ <span id="totalDays">0</span>일)</h2>
-                <div class="member-summary" id="memberSummary">
-                    <!-- 조원별 요약은 JS로 생성 -->
-                </div>
-            </div>
 
             <!-- 🆕 주간 출석 집계 -->
             <div id="weeklySummary"></div>
@@ -773,8 +714,6 @@
         // 월 표시 업데이트
         function updateMonthDisplay() {
             document.getElementById('currentMonth').textContent = `${displayYear}년 ${displayMonth + 1}월`;
-            document.getElementById('summaryMonth').textContent = `${displayMonth + 1}월`;
-            document.getElementById('totalDays').textContent = getCurrentDayForMonth(displayYear, displayMonth);
         }
 
         // 네비게이션 버튼 상태 업데이트
@@ -841,14 +780,10 @@
         }
 
         // ===== 출석표 렌더링 ===== (기존 코드 유지)
-        function renderAttendanceTable(data, prevMonthData = null, weeklyData = null) {
+        function renderAttendanceTable(data, prevMonthData = null) {
             const tableBody = document.getElementById('attendanceTableBody');
-            const memberSummaryDiv = document.getElementById('memberSummary');
 
             tableBody.innerHTML = '';
-            memberSummaryDiv.innerHTML = '';
-
-            document.getElementById('totalDays').textContent = currentDay;
 
             for (const memberName in data) {
                 const member = data[memberName];
@@ -1040,87 +975,6 @@
                 } else if (calculatedAbsence === 3) {
                     totalAbsentCell.style.backgroundColor = '#ffe0b2';
                 }
-
-                const memberCard = document.createElement('div');
-                memberCard.className = 'member-card';
-
-                // 12월부터는 주간 총결석으로 벌칙 판단, 이전은 일간 결석으로 판단
-                let penaltyAbsenceCount = calculatedAbsence;
-                if (isOffAbolished(displayYear, displayMonth) && weeklyData && weeklyData.조원별집계) {
-                    const weeklyMemberData = weeklyData.조원별집계[memberName];
-                    if (weeklyMemberData && typeof weeklyMemberData.총결석 === 'number') {
-                        penaltyAbsenceCount = weeklyMemberData.총결석;
-                    }
-                }
-
-                if (penaltyAbsenceCount >= 4) {
-                    memberCard.classList.add('penalty');
-                } else if (penaltyAbsenceCount === 3) {
-                    memberCard.classList.add('warning');
-                }
-
-                let statusText = '';
-                if (isOffAbolished(displayYear, displayMonth)) {
-                    // 12월부터: 주간 결석 기준으로 표시
-                    if (penaltyAbsenceCount >= 4) {
-                        statusText = `<span class="penalty-text">🚨 벌칙 대상 (주간결석 ${penaltyAbsenceCount}회)</span>`;
-                    } else if (penaltyAbsenceCount === 3) {
-                        statusText = `<span class="warning-text">⚠️ 경고 (주간결석 ${penaltyAbsenceCount}회)</span>`;
-                    } else {
-                        statusText = `<span style="color: #4CAF50;">✅ 정상</span>`;
-                    }
-                } else {
-                    // 11월 이전: 일간 결석 기준
-                    if (calculatedAbsence >= 4) {
-                        statusText = `<span class="penalty-text">🚨 벌칙 대상 (${calculatedAbsence}회 결석)</span>`;
-                    } else if (calculatedAbsence === 3) {
-                        statusText = `<span class="warning-text">⚠️ 경고 (${calculatedAbsence}회 결석)</span>`;
-                    } else {
-                        statusText = `<span style="color: #4CAF50;">✅ 정상</span>`;
-                    }
-                }
-
-                // 12월부터 오프 제도 폐지 - 주간 오프 경고도 숨김
-                let weekOffText = '';
-                if (!isOffAbolished(displayYear, displayMonth)) {
-                    if (thisWeekOff > 3) {
-                        const convertedDates = thisWeekOffDates.slice(-excessOffCount)
-                            .map(d => `${d.month + 1}/${d.day}`)
-                            .join(', ');
-                        weekOffText = `<br><span style="color: #f44336; font-weight: bold;">🚨 이번 주 오프: ${thisWeekOff}/3회 (한도 초과)</span>`;
-                        weekOffText += `<br><span style="color: #f44336; font-size: 13px;">→ 결석 처리: ${convertedDates} (${excessOffCount}회)</span>`;
-                    } else if (thisWeekOff >= 3) {
-                        weekOffText = `<br><span style="color: #f57f17; font-weight: bold;">⚠️ 이번 주 오프: ${thisWeekOff}/3회 (한도 도달)</span>`;
-                    } else if (thisWeekOff >= 2) {
-                        weekOffText = `<br><span style="color: #ff9800;">이번 주 오프: ${thisWeekOff}/3회</span>`;
-                    } else if (thisWeekOff >= 1) {
-                        weekOffText = `<br><span style="color: #757575;">이번 주 오프: ${thisWeekOff}/3회</span>`;
-                    }
-                }
-
-                // 12월부터 오프 제도 폐지 - 오프 초과 결석도 숨김
-                let offExcessText = '';
-                if (!isOffAbolished(displayYear, displayMonth) && offExcessAbsenceDates.length > 0) {
-                    const datesText = offExcessAbsenceDates.map(d => d + '일').join(', ');
-                    offExcessText = `<br><span style="color: #f44336; font-size: 13px;">🚨 오프 초과 결석: ${datesText}</span>`;
-                }
-
-                // 12월부터 오프 표시 제외
-                const offDisplayText = isOffAbolished(displayYear, displayMonth)
-                    ? ''
-                    : `오프: <strong class="off-text">${calculatedOff}회</strong> / `;
-
-                // 월에 따른 용어 사용
-                const cardTerms = getTerms(displayYear, displayMonth);
-
-                memberCard.innerHTML = `
-                    <strong style="font-size: 16px;">${escapeHtml(memberName)}</strong><br>
-                    ${cardTerms.attended}: <strong style="color: #2e7d32;">${calculatedAttendance}회</strong> / ${offDisplayText}
-                    장기오프: <strong class="long-off-text">${calculatedLongOff}회</strong> /
-                    ${cardTerms.absent}: <strong style="color: #c62828;">${calculatedAbsence}회</strong><br>
-                    ${statusText}${weekOffText}${offExcessText}
-                `;
-                memberSummaryDiv.appendChild(memberCard);
             }
         }
 
@@ -1170,7 +1024,7 @@
                 document.getElementById('loadingIndicator').style.display = 'none';
                 document.getElementById('contentContainer').style.display = 'block';
 
-                renderAttendanceTable(data, prevMonthData, weeklyData);
+                renderAttendanceTable(data, prevMonthData);
 
                 // 🆕 주간 통계 렌더링
                 if (weeklyData) {
@@ -1193,7 +1047,6 @@
             updateMonthDisplay();
             updateNavigationButtons();
             updateLegendText();
-            document.getElementById('totalDays').textContent = currentDay;
 
             renderDateHeaders();
             loadAttendanceData();
