@@ -3864,10 +3864,15 @@ function 이번주주간집계() {
 
   const 오늘자정 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  // 지난주가 완료되었으면 (오늘이 월요일~일요일) 지난주도 처리
+  // 지난주가 완료되었고, 아직 JSON에 완료 처리 안 됐으면 처리
   if (지난주일요일 < 오늘자정) {
-    Logger.log('📌 지난주 완료 처리 (결석 확정)');
-    지난주완료처리(지난주월요일, 지난주일요일);
+    const 지난주이미완료 = 주차완료여부확인(지난주월요일);
+    if (!지난주이미완료) {
+      Logger.log('📌 지난주 완료 처리 (결석 확정)');
+      지난주완료처리(지난주월요일, 지난주일요일);
+    } else {
+      Logger.log('📌 지난주는 이미 완료 처리됨 (스킵)');
+    }
   }
 
   // 이번 주 처리
@@ -3981,6 +3986,57 @@ function 지난주완료처리(지난주월요일, 지난주일요일) {
 
   // JSON 업데이트
   이번주JSON업데이트(소속년도, 소속월, 지난주차, 지난주집계, 주목록);
+}
+
+/**
+ * 주차가 이미 완료 처리되었는지 JSON에서 확인
+ */
+function 주차완료여부확인(주월요일) {
+  const 소속년도 = 주월요일.getFullYear();
+  const 소속월 = 주월요일.getMonth();
+  const 년월 = `${소속년도}-${String(소속월 + 1).padStart(2, '0')}`;
+  const fileName = `weekly_summary_${년월}.json`;
+
+  try {
+    const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
+    const files = folder.getFilesByName(fileName);
+
+    if (!files.hasNext()) {
+      return false;  // 파일이 없으면 완료 안 됨
+    }
+
+    const file = files.next();
+    const content = file.getBlob().getDataAsString('UTF-8');
+    const jsonData = JSON.parse(content);
+
+    // 해당 주차 찾기
+    const 주목록 = 월별주목록가져오기(소속년도, 소속월);
+    let 주차 = -1;
+
+    for (let i = 0; i < 주목록.length; i++) {
+      if (주목록[i].시작.getTime() === 주월요일.getTime()) {
+        주차 = i + 1;
+        break;
+      }
+    }
+
+    if (주차 === -1) return false;
+
+    // 첫 번째 조원의 해당 주차 데이터 확인
+    const 첫번째조원 = Object.keys(jsonData.조원별집계)[0];
+    if (!첫번째조원) return false;
+
+    const 주차별 = jsonData.조원별집계[첫번째조원].주차별;
+    const 해당주차 = 주차별.find(w => w.주차 === 주차);
+
+    if (!해당주차) return false;
+
+    return 해당주차.상태 === '완료';
+
+  } catch (e) {
+    Logger.log(`주차완료여부 확인 오류: ${e.message}`);
+    return false;
+  }
 }
 
 /**
