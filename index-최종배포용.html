@@ -841,7 +841,7 @@
         }
 
         // ===== 출석표 렌더링 ===== (기존 코드 유지)
-        function renderAttendanceTable(data, prevMonthData = null) {
+        function renderAttendanceTable(data, prevMonthData = null, weeklyData = null) {
             const tableBody = document.getElementById('attendanceTableBody');
             const memberSummaryDiv = document.getElementById('memberSummary');
 
@@ -1044,19 +1044,40 @@
                 const memberCard = document.createElement('div');
                 memberCard.className = 'member-card';
 
-                if (calculatedAbsence >= 4) {
+                // 12월부터는 주간 총결석으로 벌칙 판단, 이전은 일간 결석으로 판단
+                let penaltyAbsenceCount = calculatedAbsence;
+                if (isOffAbolished(displayYear, displayMonth) && weeklyData && weeklyData.조원별집계) {
+                    const weeklyMemberData = weeklyData.조원별집계[memberName];
+                    if (weeklyMemberData && typeof weeklyMemberData.총결석 === 'number') {
+                        penaltyAbsenceCount = weeklyMemberData.총결석;
+                    }
+                }
+
+                if (penaltyAbsenceCount >= 4) {
                     memberCard.classList.add('penalty');
-                } else if (calculatedAbsence === 3) {
+                } else if (penaltyAbsenceCount === 3) {
                     memberCard.classList.add('warning');
                 }
 
                 let statusText = '';
-                if (calculatedAbsence >= 4) {
-                    statusText = `<span class="penalty-text">🚨 벌칙 대상 (${calculatedAbsence}회 결석)</span>`;
-                } else if (calculatedAbsence === 3) {
-                    statusText = `<span class="warning-text">⚠️ 경고 (${calculatedAbsence}회 결석)</span>`;
+                if (isOffAbolished(displayYear, displayMonth)) {
+                    // 12월부터: 주간 결석 기준으로 표시
+                    if (penaltyAbsenceCount >= 4) {
+                        statusText = `<span class="penalty-text">🚨 벌칙 대상 (주간결석 ${penaltyAbsenceCount}회)</span>`;
+                    } else if (penaltyAbsenceCount === 3) {
+                        statusText = `<span class="warning-text">⚠️ 경고 (주간결석 ${penaltyAbsenceCount}회)</span>`;
+                    } else {
+                        statusText = `<span style="color: #4CAF50;">✅ 정상</span>`;
+                    }
                 } else {
-                    statusText = `<span style="color: #4CAF50;">✅ 정상</span>`;
+                    // 11월 이전: 일간 결석 기준
+                    if (calculatedAbsence >= 4) {
+                        statusText = `<span class="penalty-text">🚨 벌칙 대상 (${calculatedAbsence}회 결석)</span>`;
+                    } else if (calculatedAbsence === 3) {
+                        statusText = `<span class="warning-text">⚠️ 경고 (${calculatedAbsence}회 결석)</span>`;
+                    } else {
+                        statusText = `<span style="color: #4CAF50;">✅ 정상</span>`;
+                    }
                 }
 
                 // 12월부터 오프 제도 폐지 - 주간 오프 경고도 숨김
@@ -1149,7 +1170,7 @@
                 document.getElementById('loadingIndicator').style.display = 'none';
                 document.getElementById('contentContainer').style.display = 'block';
 
-                renderAttendanceTable(data, prevMonthData);
+                renderAttendanceTable(data, prevMonthData, weeklyData);
 
                 // 🆕 주간 통계 렌더링
                 if (weeklyData) {
