@@ -776,15 +776,22 @@ function OFF파일확인(folder) {
  * @param {string} dateStr - 확인할 날짜 (yyyy-MM-dd)
  * @returns {Object} {isLongOff: boolean, reason: string}
  */
-function 장기오프확인(memberName, dateStr) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.LONG_OFF_SHEET);
-  
-  if (!sheet) {
-    return { isLongOff: false, reason: '' };
+function 장기오프확인(memberName, dateStr, cachedLongOffData = null) {
+  // 캐시된 데이터가 없으면 시트에서 로드
+  let data;
+  if (cachedLongOffData) {
+    data = cachedLongOffData;
+  } else {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.LONG_OFF_SHEET);
+
+    if (!sheet) {
+      return { isLongOff: false, reason: '' };
+    }
+
+    data = sheet.getDataRange().getValues();
   }
-  
-  const data = sheet.getDataRange().getValues();
+
   const targetDate = new Date(dateStr);
   
   // 첫 행(헤더)은 제외하고 검색
@@ -3551,23 +3558,27 @@ function 월별주목록가져오기(year, month) {
   return 주목록;
 }
 
-function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true) {
+function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true, cachedData = null) {
   let 인증횟수 = 0;
   let 장기오프일수 = 0;
+
+  // 캐시된 데이터 추출
+  const cachedAttendanceData = cachedData?.출석데이터 || null;
+  const cachedLongOffData = cachedData?.장기오프데이터 || null;
 
   // 주의 각 날짜 체크
   for (let d = new Date(주시작); d <= 주끝; d.setDate(d.getDate() + 1)) {
     const dateStr = Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd');
 
     // 장기오프 확인 (최우선)
-    const longOffInfo = 장기오프확인(memberName, dateStr);
+    const longOffInfo = 장기오프확인(memberName, dateStr, cachedLongOffData);
     if (longOffInfo.isLongOff) {
       장기오프일수++;
       continue;
     }
 
     // 출석 확인
-    const 출석여부 = 출석확인(memberName, dateStr);
+    const 출석여부 = 출석확인(memberName, dateStr, cachedAttendanceData);
     if (출석여부) {
       인증횟수++;
     }
@@ -3609,13 +3620,19 @@ function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true) 
   };
 }
 
-function 출석확인(memberName, dateStr) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+function 출석확인(memberName, dateStr, cachedAttendanceData = null) {
+  // 캐시된 데이터가 없으면 시트에서 로드
+  let data;
+  if (cachedAttendanceData) {
+    data = cachedAttendanceData;
+  } else {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
 
-  if (!sheet) return false;
+    if (!sheet) return false;
 
-  const data = sheet.getDataRange().getValues();
+    data = sheet.getDataRange().getValues();
+  }
 
   // 제출기록 시트에서 확인
   for (let i = 1; i < data.length; i++) {
@@ -3646,6 +3663,14 @@ function 월별주간집계(year, month) {
   const 오늘 = new Date();
   const 오늘자정 = new Date(오늘.getFullYear(), 오늘.getMonth(), 오늘.getDate());
 
+  // 🚀 시트 데이터 캐싱 (한 번만 로드)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cachedData = {
+    출석데이터: ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [],
+    장기오프데이터: ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || []
+  };
+  Logger.log(`📊 데이터 캐싱 완료 (출석: ${cachedData.출석데이터.length}행, 장기오프: ${cachedData.장기오프데이터.length}행)`);
+
   // 각 주별 집계
   for (let weekIdx = 0; weekIdx < 주목록.length; weekIdx++) {
     const 주 = 주목록[weekIdx];
@@ -3659,7 +3684,7 @@ function 월별주간집계(year, month) {
 
     // 각 조원별 계산
     for (const memberName of Object.keys(CONFIG.MEMBERS)) {
-      const 결과 = 주간인증계산(memberName, 주.시작, 주.끝, 완료된주);
+      const 결과 = 주간인증계산(memberName, 주.시작, 주.끝, 완료된주, cachedData);
 
       if (!조원결석[memberName]) {
         조원결석[memberName] = {
@@ -3873,8 +3898,16 @@ function 지난주결석확정() {
     return;
   }
 
+  // 🚀 시트 데이터 캐싱 (한 번만 로드)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cachedData = {
+    출석데이터: ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [],
+    장기오프데이터: ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || []
+  };
+  Logger.log(`📊 데이터 캐싱 완료 (출석: ${cachedData.출석데이터.length}행, 장기오프: ${cachedData.장기오프데이터.length}행)`);
+
   // 지난주 완료 처리
-  지난주완료처리(지난주월요일, 지난주일요일);
+  지난주완료처리(지난주월요일, 지난주일요일, cachedData);
 
   const endTime = new Date();
   const 소요시간 = (endTime - startTime) / 1000;
@@ -3939,11 +3972,19 @@ function 이번주주간집계() {
   // 이번 주가 완료되었는지 확인
   const 완료된주 = 이번주일요일 < 오늘자정;
 
+  // 🚀 시트 데이터 캐싱 (한 번만 로드)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cachedData = {
+    출석데이터: ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [],
+    장기오프데이터: ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || []
+  };
+  Logger.log(`📊 데이터 캐싱 완료 (출석: ${cachedData.출석데이터.length}행, 장기오프: ${cachedData.장기오프데이터.length}행)`);
+
   // 각 조원별 이번 주 집계
   const 이번주집계 = {};
 
   for (const memberName of Object.keys(CONFIG.MEMBERS)) {
-    const 결과 = 주간인증계산(memberName, 이번주월요일, 이번주일요일, 완료된주);
+    const 결과 = 주간인증계산(memberName, 이번주월요일, 이번주일요일, 완료된주, cachedData);
 
     이번주집계[memberName] = {
       주차: 현재주차,
@@ -3970,7 +4011,7 @@ function 이번주주간집계() {
 /**
  * 지난주 완료 처리 (결석 확정)
  */
-function 지난주완료처리(지난주월요일, 지난주일요일) {
+function 지난주완료처리(지난주월요일, 지난주일요일, cachedData = null) {
   const 소속년도 = 지난주월요일.getFullYear();
   const 소속월 = 지난주월요일.getMonth();
 
@@ -3999,7 +4040,7 @@ function 지난주완료처리(지난주월요일, 지난주일요일) {
   const 지난주집계 = {};
 
   for (const memberName of Object.keys(CONFIG.MEMBERS)) {
-    const 결과 = 주간인증계산(memberName, 지난주월요일, 지난주일요일, true);
+    const 결과 = 주간인증계산(memberName, 지난주월요일, 지난주일요일, true, cachedData);
 
     지난주집계[memberName] = {
       주차: 지난주차,
