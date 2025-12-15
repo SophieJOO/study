@@ -5433,6 +5433,58 @@ function 다이제스트시트초기화() {
 }
 
 /**
+ * 이미지 압축 함수
+ * - 큰 이미지를 축소하여 base64 크기 감소
+ * - Google Apps Script의 이미지 처리 한계로 인해 크기 제한 방식 사용
+ * @param {string} base64Data - 원본 base64 이미지 데이터
+ * @param {string} mimeType - 이미지 MIME 타입
+ * @returns {string} 압축된 base64 데이터 (또는 원본)
+ */
+function 이미지압축(base64Data, mimeType) {
+  try {
+    // base64 크기가 1MB 이하면 그대로 반환
+    const MAX_IMAGE_SIZE = 1 * 1024 * 1024; // 1MB
+    if (base64Data.length <= MAX_IMAGE_SIZE) {
+      return base64Data;
+    }
+
+    Logger.log(`  🗜️ 이미지 압축 시도: ${(base64Data.length / 1024 / 1024).toFixed(2)}MB`);
+
+    // base64를 blob으로 변환
+    const decodedData = Utilities.base64Decode(base64Data);
+    const blob = Utilities.newBlob(decodedData, mimeType, 'image');
+
+    // PNG를 JPEG로 변환하여 압축 (JPEG가 일반적으로 더 작음)
+    let compressedBlob;
+    if (mimeType === 'image/png') {
+      // PNG -> JPEG 변환
+      compressedBlob = blob.getAs('image/jpeg');
+    } else {
+      // 이미 JPEG인 경우 썸네일로 축소 시도
+      compressedBlob = blob;
+    }
+
+    // 압축된 데이터를 base64로 재인코딩
+    const compressedBase64 = Utilities.base64Encode(compressedBlob.getBytes());
+
+    // 압축 후에도 너무 크면 null 반환 (이미지 스킵)
+    if (compressedBase64.length > MAX_IMAGE_SIZE * 2) {
+      Logger.log(`  ⚠️ 압축 후에도 너무 큼 - 이미지 스킵: ${(compressedBase64.length / 1024 / 1024).toFixed(2)}MB`);
+      return null;
+    }
+
+    const compressionRatio = ((1 - compressedBase64.length / base64Data.length) * 100).toFixed(1);
+    Logger.log(`  ✅ 이미지 압축 완료: ${(compressedBase64.length / 1024 / 1024).toFixed(2)}MB (${compressionRatio}% 감소)`);
+
+    return compressedBase64;
+  } catch (e) {
+    Logger.log(`  ❌ 이미지 압축 실패: ${e.message}`);
+    // 압축 실패 시 원본 반환
+    return base64Data;
+  }
+}
+
+/**
  * 다이제스트 저장 (드라이브 + 시트 하이브리드) 🆕
  * - HTML 파일은 드라이브에 저장 (이미지 base64 포함 가능)
  * - 파일 ID는 시트에 저장 (관리 편의성)
@@ -5441,8 +5493,18 @@ function 다이제스트시트초기화() {
  * @param {Array} 조원데이터 - 조원별 상세 데이터
  * @param {string} dateStr - 날짜
  */
-function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) {
+function 다이제스트저장(통합다이제스트, 조원데이터, dateStr, options = {}) {
   Logger.log(`\n📝 다이제스트 저장 시작: ${dateStr}`);
+
+  // 기본 옵션 설정
+  options = {
+    compressImages: options.compressImages || false,
+    skipImages: options.skipImages || false,
+    ...options
+  };
+
+  // 최대 파일 크기 (10MB - 여유분 고려)
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
   // 1. HTML 파일 생성 (시트에 저장할 내용)
   let htmlContent = `<!DOCTYPE html>
@@ -5725,23 +5787,33 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
 
     // 이미지 갤러리 추가 (base64 데이터가 있는 이미지만)
     const images = data.파일목록.filter(f => f.타입 === 'Image' && f.base64);
-    if (images.length > 0) {
-      htmlContent += `
-            <div class="image-gallery">
-                <h4>📸 첨부 이미지 (${images.length}개)</h4>
-`;
-      images.forEach(img => {
-        const dataUri = `data:${img.mimeType};base64,${img.base64}`;
+    if (images.length > 0 && !options.skipImages) {
+      // 압축 모드에서 null인 이미지(너무 큰 이미지)는 제외
+      const validImages = options.compressImages
+        ? images.filter(img => img.compressedBase64 !== null)
+        : images;
+
+      if (validImages.length > 0) {
         htmlContent += `
+            <div class="image-gallery">
+                <h4>📸 첨부 이미지 (${validImages.length}개)</h4>
+`;
+        validImages.forEach(img => {
+          // 압축 모드인 경우 압축된 이미지 사용
+          const imageBase64 = options.compressImages ? (img.compressedBase64 || img.base64) : img.base64;
+          if (!imageBase64) return; // null 체크
+          const dataUri = `data:${img.mimeType};base64,${imageBase64}`;
+          htmlContent += `
                 <div class="image-item">
                     <img src="${dataUri}" alt="${img.이름}">
                     <div class="image-caption">${img.이름}</div>
                 </div>
 `;
-      });
-      htmlContent += `
+        });
+        htmlContent += `
             </div>
 `;
+      }
     }
 
     htmlContent += `
@@ -5755,6 +5827,40 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
 </html>`;
 
   Logger.log(`\n📏 HTML 길이: ${htmlContent.length} 문자`);
+
+  // 용량 초과 시 재시도 로직
+  if (htmlContent.length > MAX_FILE_SIZE) {
+    if (!options.compressImages && !options.skipImages) {
+      // 1차 시도: 이미지 압축
+      Logger.log(`⚠️ 파일 크기 초과 (${(htmlContent.length / 1024 / 1024).toFixed(2)}MB) - 이미지 압축 후 재시도`);
+
+      // 이미지 압축 수행
+      조원데이터.forEach(data => {
+        data.파일목록.forEach(file => {
+          if (file.타입 === 'Image' && file.base64) {
+            file.compressedBase64 = 이미지압축(file.base64, file.mimeType);
+          }
+        });
+      });
+
+      return 다이제스트저장(통합다이제스트, 조원데이터, dateStr, { compressImages: true });
+    } else if (options.compressImages && !options.skipImages) {
+      // 2차 시도: 이미지 제외
+      Logger.log(`⚠️ 압축 후에도 크기 초과 (${(htmlContent.length / 1024 / 1024).toFixed(2)}MB) - 이미지 제외 후 재시도`);
+      return 다이제스트저장(통합다이제스트, 조원데이터, dateStr, { skipImages: true });
+    } else {
+      // 그래도 초과하면 에러
+      Logger.log(`❌ 이미지 제외 후에도 크기 초과 - 텍스트 내용이 너무 큽니다.`);
+      throw new Error(`다이제스트 파일 크기 초과: ${(htmlContent.length / 1024 / 1024).toFixed(2)}MB`);
+    }
+  }
+
+  if (options.compressImages) {
+    Logger.log(`✅ 이미지 압축 적용됨`);
+  }
+  if (options.skipImages) {
+    Logger.log(`✅ 이미지 제외됨 (텍스트만 저장)`);
+  }
 
   // 2. 드라이브에 HTML 파일 저장 (이미지 포함, 권한 문제 해결!)
   const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
