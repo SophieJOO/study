@@ -3562,8 +3562,8 @@ function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true, 
   let 인증횟수 = 0;
   let 장기오프일수 = 0;
 
-  // 캐시된 데이터 추출
-  const cachedAttendanceData = cachedData?.출석데이터 || null;
+  // 캐시된 데이터 추출 (인덱스 또는 원본 데이터)
+  const cachedAttendanceIndex = cachedData?.출석인덱스 || null;
   const cachedLongOffData = cachedData?.장기오프데이터 || null;
 
   // 주의 각 날짜 체크
@@ -3577,8 +3577,8 @@ function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true, 
       continue;
     }
 
-    // 출석 확인
-    const 출석여부 = 출석확인(memberName, dateStr, cachedAttendanceData);
+    // 출석 확인 (인덱스로 O(1) 검색)
+    const 출석여부 = 출석확인(memberName, dateStr, cachedAttendanceIndex);
     if (출석여부) {
       인증횟수++;
     }
@@ -3620,21 +3620,51 @@ function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true, 
   };
 }
 
-function 출석확인(memberName, dateStr, cachedAttendanceData = null) {
-  // 캐시된 데이터가 없으면 시트에서 로드
-  let data;
-  if (cachedAttendanceData) {
-    data = cachedAttendanceData;
-  } else {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+/**
+ * 출석 데이터를 인덱싱하여 O(1) 검색 가능하게 만듦
+ * @param {Array} data - 시트 원본 데이터
+ * @returns {Map} key: "이름-날짜", value: status
+ */
+function 출석데이터인덱싱(data) {
+  const index = new Map();
 
-    if (!sheet) return false;
+  for (let i = 1; i < data.length; i++) {
+    const [timestamp, name, recordDate, fileCount, links, folderLink, status, weekNum, reason] = data[i];
 
-    data = sheet.getDataRange().getValues();
+    if (!name) continue;
+
+    // 날짜 문자열 변환 (한 번만)
+    const dateStr = typeof recordDate === 'string'
+      ? recordDate
+      : Utilities.formatDate(new Date(recordDate), 'Asia/Seoul', 'yyyy-MM-dd');
+
+    const key = `${name}-${dateStr}`;
+
+    // 이미 있으면 O가 우선 (출석이 한 번이라도 있으면 출석으로 인정)
+    if (!index.has(key) || status === 'O') {
+      index.set(key, status);
+    }
   }
 
-  // 제출기록 시트에서 확인
+  return index;
+}
+
+function 출석확인(memberName, dateStr, cachedIndex = null) {
+  // 인덱스가 있으면 O(1) 검색
+  if (cachedIndex instanceof Map) {
+    const key = `${memberName}-${dateStr}`;
+    const status = cachedIndex.get(key);
+    return status === 'O';
+  }
+
+  // 인덱스가 없으면 기존 방식 (시트에서 로드)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+  if (!sheet) return false;
+
+  const data = sheet.getDataRange().getValues();
+
   for (let i = 1; i < data.length; i++) {
     const [timestamp, name, recordDate, fileCount, links, folderLink, status, weekNum, reason] = data[i];
 
@@ -3643,7 +3673,6 @@ function 출석확인(memberName, dateStr, cachedAttendanceData = null) {
       : Utilities.formatDate(new Date(recordDate), 'Asia/Seoul', 'yyyy-MM-dd');
 
     if (name === memberName && recordDateStr === dateStr) {
-      // O (출석)만 인정, OFF는 폐지됨
       return status === 'O';
     }
   }
@@ -3665,11 +3694,15 @@ function 월별주간집계(year, month) {
 
   // 🚀 시트 데이터 캐싱 (한 번만 로드)
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const 출석원본 = ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [];
+  const 장기오프원본 = ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || [];
+
+  // 🚀 데이터 인덱싱 (O(1) 검색을 위해)
   const cachedData = {
-    출석데이터: ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [],
-    장기오프데이터: ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || []
+    출석인덱스: 출석데이터인덱싱(출석원본),
+    장기오프데이터: 장기오프원본
   };
-  Logger.log(`📊 데이터 캐싱 완료 (출석: ${cachedData.출석데이터.length}행, 장기오프: ${cachedData.장기오프데이터.length}행)`);
+  Logger.log(`📊 데이터 캐싱 완료 (출석: ${출석원본.length}행, 장기오프: ${장기오프원본.length}행)`);
 
   // 각 주별 집계
   for (let weekIdx = 0; weekIdx < 주목록.length; weekIdx++) {
@@ -3900,11 +3933,15 @@ function 지난주결석확정() {
 
   // 🚀 시트 데이터 캐싱 (한 번만 로드)
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const 출석원본 = ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [];
+  const 장기오프원본 = ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || [];
+
+  // 🚀 데이터 인덱싱 (O(1) 검색을 위해)
   const cachedData = {
-    출석데이터: ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [],
-    장기오프데이터: ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || []
+    출석인덱스: 출석데이터인덱싱(출석원본),
+    장기오프데이터: 장기오프원본
   };
-  Logger.log(`📊 데이터 캐싱 완료 (출석: ${cachedData.출석데이터.length}행, 장기오프: ${cachedData.장기오프데이터.length}행)`);
+  Logger.log(`📊 데이터 캐싱 완료 (출석: ${출석원본.length}행, 장기오프: ${장기오프원본.length}행)`);
 
   // 지난주 완료 처리
   지난주완료처리(지난주월요일, 지난주일요일, cachedData);
@@ -3974,11 +4011,15 @@ function 이번주주간집계() {
 
   // 🚀 시트 데이터 캐싱 (한 번만 로드)
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const 출석원본 = ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [];
+  const 장기오프원본 = ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || [];
+
+  // 🚀 데이터 인덱싱 (O(1) 검색을 위해)
   const cachedData = {
-    출석데이터: ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [],
-    장기오프데이터: ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || []
+    출석인덱스: 출석데이터인덱싱(출석원본),
+    장기오프데이터: 장기오프원본
   };
-  Logger.log(`📊 데이터 캐싱 완료 (출석: ${cachedData.출석데이터.length}행, 장기오프: ${cachedData.장기오프데이터.length}행)`);
+  Logger.log(`📊 데이터 캐싱 완료 (출석: ${출석원본.length}행, 장기오프: ${장기오프원본.length}행)`);
 
   // 각 조원별 이번 주 집계
   const 이번주집계 = {};
