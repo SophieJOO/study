@@ -776,15 +776,22 @@ function OFF파일확인(folder) {
  * @param {string} dateStr - 확인할 날짜 (yyyy-MM-dd)
  * @returns {Object} {isLongOff: boolean, reason: string}
  */
-function 장기오프확인(memberName, dateStr) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.LONG_OFF_SHEET);
-  
-  if (!sheet) {
-    return { isLongOff: false, reason: '' };
+function 장기오프확인(memberName, dateStr, cachedLongOffData = null) {
+  // 캐시된 데이터가 없으면 시트에서 로드
+  let data;
+  if (cachedLongOffData) {
+    data = cachedLongOffData;
+  } else {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.LONG_OFF_SHEET);
+
+    if (!sheet) {
+      return { isLongOff: false, reason: '' };
+    }
+
+    data = sheet.getDataRange().getValues();
   }
-  
-  const data = sheet.getDataRange().getValues();
+
   const targetDate = new Date(dateStr);
   
   // 첫 행(헤더)은 제외하고 검색
@@ -3551,23 +3558,27 @@ function 월별주목록가져오기(year, month) {
   return 주목록;
 }
 
-function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true) {
+function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true, cachedData = null) {
   let 인증횟수 = 0;
   let 장기오프일수 = 0;
+
+  // 캐시된 데이터 추출 (인덱스 또는 원본 데이터)
+  const cachedAttendanceIndex = cachedData?.출석인덱스 || null;
+  const cachedLongOffData = cachedData?.장기오프데이터 || null;
 
   // 주의 각 날짜 체크
   for (let d = new Date(주시작); d <= 주끝; d.setDate(d.getDate() + 1)) {
     const dateStr = Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd');
 
     // 장기오프 확인 (최우선)
-    const longOffInfo = 장기오프확인(memberName, dateStr);
+    const longOffInfo = 장기오프확인(memberName, dateStr, cachedLongOffData);
     if (longOffInfo.isLongOff) {
       장기오프일수++;
       continue;
     }
 
-    // 출석 확인
-    const 출석여부 = 출석확인(memberName, dateStr);
+    // 출석 확인 (인덱스로 O(1) 검색)
+    const 출석여부 = 출석확인(memberName, dateStr, cachedAttendanceIndex);
     if (출석여부) {
       인증횟수++;
     }
@@ -3609,7 +3620,44 @@ function 주간인증계산(memberName, 주시작, 주끝, 완료된주 = true) 
   };
 }
 
-function 출석확인(memberName, dateStr) {
+/**
+ * 출석 데이터를 인덱싱하여 O(1) 검색 가능하게 만듦
+ * @param {Array} data - 시트 원본 데이터
+ * @returns {Map} key: "이름-날짜", value: status
+ */
+function 출석데이터인덱싱(data) {
+  const index = new Map();
+
+  for (let i = 1; i < data.length; i++) {
+    const [timestamp, name, recordDate, fileCount, links, folderLink, status, weekNum, reason] = data[i];
+
+    if (!name) continue;
+
+    // 날짜 문자열 변환 (한 번만)
+    const dateStr = typeof recordDate === 'string'
+      ? recordDate
+      : Utilities.formatDate(new Date(recordDate), 'Asia/Seoul', 'yyyy-MM-dd');
+
+    const key = `${name}-${dateStr}`;
+
+    // 이미 있으면 O가 우선 (출석이 한 번이라도 있으면 출석으로 인정)
+    if (!index.has(key) || status === 'O') {
+      index.set(key, status);
+    }
+  }
+
+  return index;
+}
+
+function 출석확인(memberName, dateStr, cachedIndex = null) {
+  // 인덱스가 있으면 O(1) 검색
+  if (cachedIndex instanceof Map) {
+    const key = `${memberName}-${dateStr}`;
+    const status = cachedIndex.get(key);
+    return status === 'O';
+  }
+
+  // 인덱스가 없으면 기존 방식 (시트에서 로드)
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
 
@@ -3617,7 +3665,6 @@ function 출석확인(memberName, dateStr) {
 
   const data = sheet.getDataRange().getValues();
 
-  // 제출기록 시트에서 확인
   for (let i = 1; i < data.length; i++) {
     const [timestamp, name, recordDate, fileCount, links, folderLink, status, weekNum, reason] = data[i];
 
@@ -3626,7 +3673,6 @@ function 출석확인(memberName, dateStr) {
       : Utilities.formatDate(new Date(recordDate), 'Asia/Seoul', 'yyyy-MM-dd');
 
     if (name === memberName && recordDateStr === dateStr) {
-      // O (출석)만 인정, OFF는 폐지됨
       return status === 'O';
     }
   }
@@ -3646,6 +3692,18 @@ function 월별주간집계(year, month) {
   const 오늘 = new Date();
   const 오늘자정 = new Date(오늘.getFullYear(), 오늘.getMonth(), 오늘.getDate());
 
+  // 🚀 시트 데이터 캐싱 (한 번만 로드)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const 출석원본 = ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [];
+  const 장기오프원본 = ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || [];
+
+  // 🚀 데이터 인덱싱 (O(1) 검색을 위해)
+  const cachedData = {
+    출석인덱스: 출석데이터인덱싱(출석원본),
+    장기오프데이터: 장기오프원본
+  };
+  Logger.log(`📊 데이터 캐싱 완료 (출석: ${출석원본.length}행, 장기오프: ${장기오프원본.length}행)`);
+
   // 각 주별 집계
   for (let weekIdx = 0; weekIdx < 주목록.length; weekIdx++) {
     const 주 = 주목록[weekIdx];
@@ -3659,7 +3717,7 @@ function 월별주간집계(year, month) {
 
     // 각 조원별 계산
     for (const memberName of Object.keys(CONFIG.MEMBERS)) {
-      const 결과 = 주간인증계산(memberName, 주.시작, 주.끝, 완료된주);
+      const 결과 = 주간인증계산(memberName, 주.시작, 주.끝, 완료된주, cachedData);
 
       if (!조원결석[memberName]) {
         조원결석[memberName] = {
@@ -3873,8 +3931,20 @@ function 지난주결석확정() {
     return;
   }
 
+  // 🚀 시트 데이터 캐싱 (한 번만 로드)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const 출석원본 = ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [];
+  const 장기오프원본 = ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || [];
+
+  // 🚀 데이터 인덱싱 (O(1) 검색을 위해)
+  const cachedData = {
+    출석인덱스: 출석데이터인덱싱(출석원본),
+    장기오프데이터: 장기오프원본
+  };
+  Logger.log(`📊 데이터 캐싱 완료 (출석: ${출석원본.length}행, 장기오프: ${장기오프원본.length}행)`);
+
   // 지난주 완료 처리
-  지난주완료처리(지난주월요일, 지난주일요일);
+  지난주완료처리(지난주월요일, 지난주일요일, cachedData);
 
   const endTime = new Date();
   const 소요시간 = (endTime - startTime) / 1000;
@@ -3939,11 +4009,23 @@ function 이번주주간집계() {
   // 이번 주가 완료되었는지 확인
   const 완료된주 = 이번주일요일 < 오늘자정;
 
+  // 🚀 시트 데이터 캐싱 (한 번만 로드)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const 출석원본 = ss.getSheetByName(CONFIG.SHEET_NAME)?.getDataRange().getValues() || [];
+  const 장기오프원본 = ss.getSheetByName(CONFIG.LONG_OFF_SHEET)?.getDataRange().getValues() || [];
+
+  // 🚀 데이터 인덱싱 (O(1) 검색을 위해)
+  const cachedData = {
+    출석인덱스: 출석데이터인덱싱(출석원본),
+    장기오프데이터: 장기오프원본
+  };
+  Logger.log(`📊 데이터 캐싱 완료 (출석: ${출석원본.length}행, 장기오프: ${장기오프원본.length}행)`);
+
   // 각 조원별 이번 주 집계
   const 이번주집계 = {};
 
   for (const memberName of Object.keys(CONFIG.MEMBERS)) {
-    const 결과 = 주간인증계산(memberName, 이번주월요일, 이번주일요일, 완료된주);
+    const 결과 = 주간인증계산(memberName, 이번주월요일, 이번주일요일, 완료된주, cachedData);
 
     이번주집계[memberName] = {
       주차: 현재주차,
@@ -3968,9 +4050,70 @@ function 이번주주간집계() {
 }
 
 /**
+ * 🆕 특정 주 주간집계 재계산 (범용)
+ * - 해당 주가 이미 완료되어도 강제로 재계산
+ * - 시트 메뉴 또는 수동 실행용
+ * @param {string} dateStr - 해당 주의 아무 날짜 (yyyy-MM-dd 형식). 없으면 프롬프트로 입력받음
+ */
+function 주간집계재계산(dateStr) {
+  // 날짜가 없으면 프롬프트로 입력받기
+  if (!dateStr) {
+    const ui = SpreadsheetApp.getUi();
+    const response = ui.prompt(
+      '📅 주간집계 재계산',
+      '재계산할 주의 날짜를 입력하세요 (예: 2025-12-15)\n해당 주의 아무 날짜나 입력하면 됩니다.',
+      ui.ButtonSet.OK_CANCEL
+    );
+
+    if (response.getSelectedButton() !== ui.Button.OK) {
+      Logger.log('취소됨');
+      return;
+    }
+
+    dateStr = response.getResponseText().trim();
+  }
+
+  // 날짜 파싱
+  const targetDate = new Date(dateStr);
+  if (isNaN(targetDate.getTime())) {
+    Logger.log(`❌ 잘못된 날짜 형식: ${dateStr}`);
+    SpreadsheetApp.getUi().alert(`잘못된 날짜 형식입니다: ${dateStr}\n예: 2025-12-15`);
+    return;
+  }
+
+  // 해당 주의 월요일 찾기
+  const dayOfWeek = targetDate.getDay(); // 0=일, 1=월, ..., 6=토
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const 주월요일 = new Date(targetDate);
+  주월요일.setDate(targetDate.getDate() - daysFromMonday);
+  주월요일.setHours(0, 0, 0, 0);
+
+  // 해당 주의 일요일
+  const 주일요일 = new Date(주월요일);
+  주일요일.setDate(주월요일.getDate() + 6);
+
+  const 시작일 = Utilities.formatDate(주월요일, 'Asia/Seoul', 'MM/dd(E)');
+  const 종료일 = Utilities.formatDate(주일요일, 'Asia/Seoul', 'MM/dd(E)');
+
+  Logger.log(`=== 주간집계 재계산 시작 ===`);
+  Logger.log(`📅 대상 주: ${시작일} ~ ${종료일}`);
+
+  // 강제로 완료 처리 (재계산)
+  지난주완료처리(주월요일, 주일요일);
+
+  Logger.log(`✅ 주간집계 재계산 완료: ${시작일} ~ ${종료일}`);
+
+  try {
+    SpreadsheetApp.getUi().alert(`✅ 주간집계 재계산 완료!\n\n대상: ${시작일} ~ ${종료일}`);
+  } catch (e) {
+    // UI가 없는 환경 (트리거 등)에서는 무시
+  }
+}
+
+/**
  * 지난주 완료 처리 (결석 확정)
  */
-function 지난주완료처리(지난주월요일, 지난주일요일) {
+function 지난주완료처리(지난주월요일, 지난주일요일, cachedData = null) {
   const 소속년도 = 지난주월요일.getFullYear();
   const 소속월 = 지난주월요일.getMonth();
 
@@ -3999,7 +4142,7 @@ function 지난주완료처리(지난주월요일, 지난주일요일) {
   const 지난주집계 = {};
 
   for (const memberName of Object.keys(CONFIG.MEMBERS)) {
-    const 결과 = 주간인증계산(memberName, 지난주월요일, 지난주일요일, true);
+    const 결과 = 주간인증계산(memberName, 지난주월요일, 지난주일요일, true, cachedData);
 
     지난주집계[memberName] = {
       주차: 지난주차,
@@ -5392,6 +5535,58 @@ function 다이제스트시트초기화() {
 }
 
 /**
+ * 이미지 압축 함수
+ * - 큰 이미지를 축소하여 base64 크기 감소
+ * - Google Apps Script의 이미지 처리 한계로 인해 크기 제한 방식 사용
+ * @param {string} base64Data - 원본 base64 이미지 데이터
+ * @param {string} mimeType - 이미지 MIME 타입
+ * @returns {string} 압축된 base64 데이터 (또는 원본)
+ */
+function 이미지압축(base64Data, mimeType) {
+  try {
+    // base64 크기가 1MB 이하면 그대로 반환
+    const MAX_IMAGE_SIZE = 1 * 1024 * 1024; // 1MB
+    if (base64Data.length <= MAX_IMAGE_SIZE) {
+      return base64Data;
+    }
+
+    Logger.log(`  🗜️ 이미지 압축 시도: ${(base64Data.length / 1024 / 1024).toFixed(2)}MB`);
+
+    // base64를 blob으로 변환
+    const decodedData = Utilities.base64Decode(base64Data);
+    const blob = Utilities.newBlob(decodedData, mimeType, 'image');
+
+    // PNG를 JPEG로 변환하여 압축 (JPEG가 일반적으로 더 작음)
+    let compressedBlob;
+    if (mimeType === 'image/png') {
+      // PNG -> JPEG 변환
+      compressedBlob = blob.getAs('image/jpeg');
+    } else {
+      // 이미 JPEG인 경우 썸네일로 축소 시도
+      compressedBlob = blob;
+    }
+
+    // 압축된 데이터를 base64로 재인코딩
+    const compressedBase64 = Utilities.base64Encode(compressedBlob.getBytes());
+
+    // 압축 후에도 너무 크면 null 반환 (이미지 스킵)
+    if (compressedBase64.length > MAX_IMAGE_SIZE * 2) {
+      Logger.log(`  ⚠️ 압축 후에도 너무 큼 - 이미지 스킵: ${(compressedBase64.length / 1024 / 1024).toFixed(2)}MB`);
+      return null;
+    }
+
+    const compressionRatio = ((1 - compressedBase64.length / base64Data.length) * 100).toFixed(1);
+    Logger.log(`  ✅ 이미지 압축 완료: ${(compressedBase64.length / 1024 / 1024).toFixed(2)}MB (${compressionRatio}% 감소)`);
+
+    return compressedBase64;
+  } catch (e) {
+    Logger.log(`  ❌ 이미지 압축 실패: ${e.message}`);
+    // 압축 실패 시 원본 반환
+    return base64Data;
+  }
+}
+
+/**
  * 다이제스트 저장 (드라이브 + 시트 하이브리드) 🆕
  * - HTML 파일은 드라이브에 저장 (이미지 base64 포함 가능)
  * - 파일 ID는 시트에 저장 (관리 편의성)
@@ -5400,8 +5595,18 @@ function 다이제스트시트초기화() {
  * @param {Array} 조원데이터 - 조원별 상세 데이터
  * @param {string} dateStr - 날짜
  */
-function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) {
+function 다이제스트저장(통합다이제스트, 조원데이터, dateStr, options = {}) {
   Logger.log(`\n📝 다이제스트 저장 시작: ${dateStr}`);
+
+  // 기본 옵션 설정
+  options = {
+    compressImages: options.compressImages || false,
+    skipImages: options.skipImages || false,
+    ...options
+  };
+
+  // 최대 파일 크기 (10MB - 여유분 고려)
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
   // 1. HTML 파일 생성 (시트에 저장할 내용)
   let htmlContent = `<!DOCTYPE html>
@@ -5684,23 +5889,33 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
 
     // 이미지 갤러리 추가 (base64 데이터가 있는 이미지만)
     const images = data.파일목록.filter(f => f.타입 === 'Image' && f.base64);
-    if (images.length > 0) {
-      htmlContent += `
-            <div class="image-gallery">
-                <h4>📸 첨부 이미지 (${images.length}개)</h4>
-`;
-      images.forEach(img => {
-        const dataUri = `data:${img.mimeType};base64,${img.base64}`;
+    if (images.length > 0 && !options.skipImages) {
+      // 압축 모드에서 null인 이미지(너무 큰 이미지)는 제외
+      const validImages = options.compressImages
+        ? images.filter(img => img.compressedBase64 !== null)
+        : images;
+
+      if (validImages.length > 0) {
         htmlContent += `
+            <div class="image-gallery">
+                <h4>📸 첨부 이미지 (${validImages.length}개)</h4>
+`;
+        validImages.forEach(img => {
+          // 압축 모드인 경우 압축된 이미지 사용
+          const imageBase64 = options.compressImages ? (img.compressedBase64 || img.base64) : img.base64;
+          if (!imageBase64) return; // null 체크
+          const dataUri = `data:${img.mimeType};base64,${imageBase64}`;
+          htmlContent += `
                 <div class="image-item">
                     <img src="${dataUri}" alt="${img.이름}">
                     <div class="image-caption">${img.이름}</div>
                 </div>
 `;
-      });
-      htmlContent += `
+        });
+        htmlContent += `
             </div>
 `;
+      }
     }
 
     htmlContent += `
@@ -5714,6 +5929,40 @@ function 다이제스트저장(통합다이제스트, 조원데이터, dateStr) 
 </html>`;
 
   Logger.log(`\n📏 HTML 길이: ${htmlContent.length} 문자`);
+
+  // 용량 초과 시 재시도 로직
+  if (htmlContent.length > MAX_FILE_SIZE) {
+    if (!options.compressImages && !options.skipImages) {
+      // 1차 시도: 이미지 압축
+      Logger.log(`⚠️ 파일 크기 초과 (${(htmlContent.length / 1024 / 1024).toFixed(2)}MB) - 이미지 압축 후 재시도`);
+
+      // 이미지 압축 수행
+      조원데이터.forEach(data => {
+        data.파일목록.forEach(file => {
+          if (file.타입 === 'Image' && file.base64) {
+            file.compressedBase64 = 이미지압축(file.base64, file.mimeType);
+          }
+        });
+      });
+
+      return 다이제스트저장(통합다이제스트, 조원데이터, dateStr, { compressImages: true });
+    } else if (options.compressImages && !options.skipImages) {
+      // 2차 시도: 이미지 제외
+      Logger.log(`⚠️ 압축 후에도 크기 초과 (${(htmlContent.length / 1024 / 1024).toFixed(2)}MB) - 이미지 제외 후 재시도`);
+      return 다이제스트저장(통합다이제스트, 조원데이터, dateStr, { skipImages: true });
+    } else {
+      // 그래도 초과하면 에러
+      Logger.log(`❌ 이미지 제외 후에도 크기 초과 - 텍스트 내용이 너무 큽니다.`);
+      throw new Error(`다이제스트 파일 크기 초과: ${(htmlContent.length / 1024 / 1024).toFixed(2)}MB`);
+    }
+  }
+
+  if (options.compressImages) {
+    Logger.log(`✅ 이미지 압축 적용됨`);
+  }
+  if (options.skipImages) {
+    Logger.log(`✅ 이미지 제외됨 (텍스트만 저장)`);
+  }
 
   // 2. 드라이브에 HTML 파일 저장 (이미지 포함, 권한 문제 해결!)
   const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
