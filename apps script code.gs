@@ -4050,6 +4050,67 @@ function 이번주주간집계() {
 }
 
 /**
+ * 🆕 특정 주 주간집계 재계산 (범용)
+ * - 해당 주가 이미 완료되어도 강제로 재계산
+ * - 시트 메뉴 또는 수동 실행용
+ * @param {string} dateStr - 해당 주의 아무 날짜 (yyyy-MM-dd 형식). 없으면 프롬프트로 입력받음
+ */
+function 주간집계재계산(dateStr) {
+  // 날짜가 없으면 프롬프트로 입력받기
+  if (!dateStr) {
+    const ui = SpreadsheetApp.getUi();
+    const response = ui.prompt(
+      '📅 주간집계 재계산',
+      '재계산할 주의 날짜를 입력하세요 (예: 2025-12-15)\n해당 주의 아무 날짜나 입력하면 됩니다.',
+      ui.ButtonSet.OK_CANCEL
+    );
+
+    if (response.getSelectedButton() !== ui.Button.OK) {
+      Logger.log('취소됨');
+      return;
+    }
+
+    dateStr = response.getResponseText().trim();
+  }
+
+  // 날짜 파싱
+  const targetDate = new Date(dateStr);
+  if (isNaN(targetDate.getTime())) {
+    Logger.log(`❌ 잘못된 날짜 형식: ${dateStr}`);
+    SpreadsheetApp.getUi().alert(`잘못된 날짜 형식입니다: ${dateStr}\n예: 2025-12-15`);
+    return;
+  }
+
+  // 해당 주의 월요일 찾기
+  const dayOfWeek = targetDate.getDay(); // 0=일, 1=월, ..., 6=토
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const 주월요일 = new Date(targetDate);
+  주월요일.setDate(targetDate.getDate() - daysFromMonday);
+  주월요일.setHours(0, 0, 0, 0);
+
+  // 해당 주의 일요일
+  const 주일요일 = new Date(주월요일);
+  주일요일.setDate(주월요일.getDate() + 6);
+
+  const 시작일 = Utilities.formatDate(주월요일, 'Asia/Seoul', 'MM/dd(E)');
+  const 종료일 = Utilities.formatDate(주일요일, 'Asia/Seoul', 'MM/dd(E)');
+
+  Logger.log(`=== 주간집계 재계산 시작 ===`);
+  Logger.log(`📅 대상 주: ${시작일} ~ ${종료일}`);
+
+  // 강제로 완료 처리 (재계산)
+  지난주완료처리(주월요일, 주일요일);
+
+  Logger.log(`✅ 주간집계 재계산 완료: ${시작일} ~ ${종료일}`);
+
+  try {
+    SpreadsheetApp.getUi().alert(`✅ 주간집계 재계산 완료!\n\n대상: ${시작일} ~ ${종료일}`);
+  } catch (e) {
+    // UI가 없는 환경 (트리거 등)에서는 무시
+  }
+}
+
+/**
  * 지난주 완료 처리 (결석 확정)
  */
 function 지난주완료처리(지난주월요일, 지난주일요일, cachedData = null) {
