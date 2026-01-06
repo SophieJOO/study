@@ -578,7 +578,7 @@
             }
 
             // 데이터 구조 검증
-            if (!weeklyData.조원별집계 || !weeklyData.안내) {
+            if (!weeklyData.조원별집계) {
                 console.error('주간 통계 데이터 구조 오류:', weeklyData);
                 return;
             }
@@ -593,8 +593,9 @@
             }
 
             const 년월 = weeklyData.년월 || '';
-            const 설명 = weeklyData.안내?.설명 || '각 주는 월요일부터 일요일까지입니다. 월요일이 속한 달의 주로 계산됩니다.';
-            const 예시 = weeklyData.안내?.예시 || '11월 25일(월)~12월 1일(일) → 11월 4주차';
+            const 안내 = weeklyData.안내 || weeklyData.규칙설명 || {};
+            const 설명 = 안내.설명 || 안내.주정의 || '각 주는 월요일부터 일요일까지입니다. 월요일이 속한 달의 주로 계산됩니다.';
+            const 예시 = 안내.예시 || '11월 25일(월)~12월 1일(일) → 11월 4주차';
 
             let html = `
                 <h2 style="text-align: center; color: #333; margin-bottom: 20px;">
