@@ -177,6 +177,302 @@ function 월간다이제스트_슬랙알림(yearMonth) {
   슬랙알림(message, url, '📈 월간 분석 보기');
 }
 
+// ==================== 📢 Slack PDF 전송 ====================
+
+/**
+ * Slack Bot Token 가져오기 (Script Properties에서)
+ */
+function getSlackBotToken() {
+  return PropertiesService.getScriptProperties().getProperty('SLACK_BOT_TOKEN');
+}
+
+/**
+ * Slack 채널 ID 가져오기 (Script Properties에서)
+ */
+function getSlackChannelId() {
+  return PropertiesService.getScriptProperties().getProperty('SLACK_CHANNEL_ID');
+}
+
+/**
+ * Slack Bot Token 설정 (최초 1회 실행 필요)
+ * Slack App에서 Bot Token (xoxb-...)을 발급받아 입력
+ * 필요 권한: files:write, chat:write
+ */
+function 슬랙봇토큰설정() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.prompt(
+    '🤖 Slack Bot Token 설정',
+    'Slack Bot Token (xoxb-...)을 입력하세요:',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response.getSelectedButton() === ui.Button.OK) {
+    const token = response.getResponseText().trim();
+    if (token.startsWith('xoxb-')) {
+      PropertiesService.getScriptProperties().setProperty('SLACK_BOT_TOKEN', token);
+      ui.alert('✅ Slack Bot Token이 저장되었습니다!');
+      Logger.log('✅ Slack Bot Token 설정 완료');
+    } else {
+      ui.alert('❌ 올바른 Bot Token이 아닙니다. (xoxb-로 시작해야 합니다)');
+    }
+  }
+}
+
+/**
+ * Slack 채널 ID 설정 (PDF를 보낼 채널)
+ * 채널 ID는 Slack에서 채널 우클릭 → 채널 세부정보 보기 → 하단에서 확인
+ */
+function 슬랙채널설정() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.prompt(
+    '📢 Slack 채널 ID 설정',
+    'PDF를 전송할 채널 ID (C로 시작)를 입력하세요:',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response.getSelectedButton() === ui.Button.OK) {
+    const channelId = response.getResponseText().trim();
+    if (channelId.startsWith('C') || channelId.startsWith('D') || channelId.startsWith('G')) {
+      PropertiesService.getScriptProperties().setProperty('SLACK_CHANNEL_ID', channelId);
+      ui.alert('✅ Slack 채널 ID가 저장되었습니다!');
+      Logger.log('✅ Slack 채널 ID 설정 완료: ' + channelId);
+    } else {
+      ui.alert('❌ 올바른 채널 ID가 아닙니다. (C, D, G로 시작해야 합니다)');
+    }
+  }
+}
+
+/**
+ * HTML 파일을 PDF로 변환
+ * @param {string} fileId - Google Drive HTML 파일 ID
+ * @returns {Blob} PDF Blob
+ */
+function HTML파일을PDF로변환(fileId) {
+  try {
+    const file = DriveApp.getFileById(fileId);
+    const htmlContent = file.getBlob().getDataAsString('UTF-8');
+
+    // HTML을 임시 Google Doc으로 변환 후 PDF로 export
+    const tempDoc = DocumentApp.create('temp_digest_pdf');
+    const tempDocId = tempDoc.getId();
+
+    // HTML 내용을 간단히 텍스트로 추출 (스타일 제거)
+    const textContent = htmlContent
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<[^>]+>/g, '\n')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/\n\s*\n/g, '\n\n')
+      .trim();
+
+    tempDoc.getBody().setText(textContent);
+    tempDoc.saveAndClose();
+
+    // PDF로 변환
+    const pdfBlob = DriveApp.getFileById(tempDocId).getAs('application/pdf');
+
+    // 임시 파일 삭제
+    DriveApp.getFileById(tempDocId).setTrashed(true);
+
+    return pdfBlob;
+  } catch (e) {
+    Logger.log('❌ PDF 변환 오류: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * 다이제스트 HTML을 PDF로 변환 (시트에서 파일 ID 조회)
+ * @param {string} dateStr - 날짜 (yyyy-MM-dd 또는 MONTHLY-yyyy-MM)
+ * @returns {Blob} PDF Blob
+ */
+function 다이제스트PDF생성(dateStr) {
+  try {
+    const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
+
+    if (!sheet) {
+      Logger.log('⚠️ 다이제스트 시트가 없습니다.');
+      return null;
+    }
+
+    const data = sheet.getDataRange().getValues();
+    let fileId = null;
+
+    // 날짜로 파일 ID 찾기
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === dateStr) {
+        fileId = data[i][1]; // B열: 파일 ID
+        break;
+      }
+    }
+
+    if (!fileId) {
+      Logger.log(`❌ ${dateStr} 다이제스트를 찾을 수 없습니다.`);
+      return null;
+    }
+
+    // HTML 파일 가져오기
+    const file = DriveApp.getFileById(fileId);
+    const htmlContent = file.getBlob().getDataAsString('UTF-8');
+
+    // HTML을 PDF로 변환 (Apps Script 내장 기능 활용)
+    const pdfBlob = Utilities.newBlob(htmlContent, 'text/html', `digest-${dateStr}.html`)
+      .getAs('application/pdf')
+      .setName(`다이제스트-${dateStr}.pdf`);
+
+    Logger.log(`✅ PDF 생성 완료: 다이제스트-${dateStr}.pdf`);
+    return pdfBlob;
+
+  } catch (e) {
+    Logger.log('❌ PDF 생성 오류: ' + e.message);
+
+    // 대안: HTML 파일 자체를 첨부
+    try {
+      const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+      const sheet = ss.getSheetByName(CONFIG.DIGEST_SHEET);
+      const data = sheet.getDataRange().getValues();
+
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0] === dateStr) {
+          const file = DriveApp.getFileById(data[i][1]);
+          return file.getBlob().setName(`다이제스트-${dateStr}.html`);
+        }
+      }
+    } catch (e2) {
+      Logger.log('❌ HTML 파일 로드도 실패: ' + e2.message);
+    }
+    return null;
+  }
+}
+
+/**
+ * Slack에 PDF 파일 업로드
+ * @param {Blob} pdfBlob - PDF 파일 Blob
+ * @param {string} message - 함께 보낼 메시지
+ * @param {string} channelId - 채널 ID (선택, 없으면 설정된 기본 채널 사용)
+ */
+function 슬랙PDF업로드(pdfBlob, message, channelId) {
+  const token = getSlackBotToken();
+  const channel = channelId || getSlackChannelId();
+
+  if (!token) {
+    Logger.log('⚠️ Slack Bot Token이 설정되지 않았습니다. 슬랙봇토큰설정() 함수를 먼저 실행하세요.');
+    return false;
+  }
+
+  if (!channel) {
+    Logger.log('⚠️ Slack 채널 ID가 설정되지 않았습니다. 슬랙채널설정() 함수를 먼저 실행하세요.');
+    return false;
+  }
+
+  if (!pdfBlob) {
+    Logger.log('⚠️ 업로드할 파일이 없습니다.');
+    return false;
+  }
+
+  try {
+    // Step 1: files.getUploadURLExternal로 업로드 URL 받기
+    const getUrlResponse = UrlFetchApp.fetch('https://slack.com/api/files.getUploadURLExternal', {
+      method: 'post',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      },
+      payload: {
+        filename: pdfBlob.getName(),
+        length: pdfBlob.getBytes().length
+      },
+      muteHttpExceptions: true
+    });
+
+    const urlResult = JSON.parse(getUrlResponse.getContentText());
+
+    if (!urlResult.ok) {
+      Logger.log('❌ 업로드 URL 요청 실패: ' + urlResult.error);
+      return false;
+    }
+
+    // Step 2: 파일 업로드
+    const uploadResponse = UrlFetchApp.fetch(urlResult.upload_url, {
+      method: 'post',
+      payload: pdfBlob.getBytes(),
+      muteHttpExceptions: true
+    });
+
+    if (uploadResponse.getResponseCode() !== 200) {
+      Logger.log('❌ 파일 업로드 실패');
+      return false;
+    }
+
+    // Step 3: files.completeUploadExternal로 업로드 완료
+    const completeResponse = UrlFetchApp.fetch('https://slack.com/api/files.completeUploadExternal', {
+      method: 'post',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify({
+        files: [{
+          id: urlResult.file_id,
+          title: pdfBlob.getName()
+        }],
+        channel_id: channel,
+        initial_comment: message
+      }),
+      muteHttpExceptions: true
+    });
+
+    const completeResult = JSON.parse(completeResponse.getContentText());
+
+    if (completeResult.ok) {
+      Logger.log('✅ Slack PDF 업로드 완료: ' + pdfBlob.getName());
+      return true;
+    } else {
+      Logger.log('❌ Slack 업로드 완료 실패: ' + completeResult.error);
+      return false;
+    }
+
+  } catch (e) {
+    Logger.log('❌ Slack PDF 업로드 오류: ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * 일일 다이제스트 Slack PDF 전송
+ */
+function 일일다이제스트_슬랙PDF전송(dateStr, 참여인원) {
+  const message = `📚 *${dateStr} 일일 다이제스트*\n참여 인원: ${참여인원}명`;
+  const pdfBlob = 다이제스트PDF생성(dateStr);
+
+  if (pdfBlob) {
+    슬랙PDF업로드(pdfBlob, message);
+  } else {
+    // PDF 생성 실패 시 링크로 대체
+    Logger.log('⚠️ PDF 생성 실패, 링크로 대체 전송');
+    일일다이제스트_슬랙알림(dateStr, 참여인원);
+  }
+}
+
+/**
+ * 월간 다이제스트 Slack PDF 전송
+ */
+function 월간다이제스트_슬랙PDF전송(yearMonth) {
+  const message = `📊 *${yearMonth} 월간 다이제스트*`;
+  const pdfBlob = 다이제스트PDF생성(`MONTHLY-${yearMonth}`);
+
+  if (pdfBlob) {
+    슬랙PDF업로드(pdfBlob, message);
+  } else {
+    // PDF 생성 실패 시 링크로 대체
+    Logger.log('⚠️ PDF 생성 실패, 링크로 대체 전송');
+    월간다이제스트_슬랙알림(yearMonth);
+  }
+}
+
 // ==================== 📋 시트 메뉴 ====================
 
 /**
@@ -4729,8 +5025,8 @@ function 일일AI다이제스트생성(dateStr) {
   // 🆕 월간 누적 데이터 저장 (매일 자동 누적)
   월간데이터누적(조원데이터, dateStr);
 
-  // 🆕 Slack 알림 전송
-  일일다이제스트_슬랙알림(dateStr, 조원데이터.length);
+  // 🆕 Slack PDF 전송 (Bot Token 설정 시) 또는 링크 알림
+  일일다이제스트_슬랙PDF전송(dateStr, 조원데이터.length);
 
   return 통합다이제스트;
 }
@@ -4894,8 +5190,8 @@ function 월간AI다이제스트생성(yearMonth) {
   Logger.log(`✅ 월간 다이제스트 생성 완료`);
   Logger.log('='.repeat(60));
 
-  // 🆕 Slack 알림 전송
-  월간다이제스트_슬랙알림(yearMonth);
+  // 🆕 Slack PDF 전송 (Bot Token 설정 시) 또는 링크 알림
+  월간다이제스트_슬랙PDF전송(yearMonth);
 
   return 분석결과;
 }
