@@ -30,8 +30,7 @@ const CONFIG = {
     '오늘의너굴이': '1572mLeNrDLWLnXRronM-cfNpnUt-wBAM',
     'Dann': '1mMoVApl7GN3EUYi9oPi7Nfo_2hYDb9Dw',
     '보노보노': '1_Mqn79Y1Qp79DWBxcbP-SGVUGjJA3PGw',
-    'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG'],
-    '스카피': ''  // TODO: 스카피가 폴더 공유 후 폴더 ID 입력 필요
+    'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG']
   },
   
   // 시트 이름
@@ -75,8 +74,108 @@ const CONFIG = {
   
   // 스캔 설정
   SCAN_ALL_MONTHS: false,
-  MAX_FOLDERS_TO_SCAN: 100  // 마지막 항목은 콤마 없어도 OK
+  MAX_FOLDERS_TO_SCAN: 100,
+
+  // 웹앱 URL (다이제스트 링크용)
+  WEB_APP_URL: 'https://script.google.com/macros/s/AKfycbwvp_YIPlshnQm-HJISz6AvC6g0Mf5oFMLi0uMJ7DypVOqCGmJhDFmDVQ-60QN6Df3-gg/exec'
 };
+
+// ==================== 📢 Slack 알림 ====================
+
+/**
+ * Slack Webhook URL 가져오기 (Script Properties에서)
+ * 보안을 위해 코드에 직접 저장하지 않고 Script Properties 사용
+ */
+function getSlackWebhookUrl() {
+  return PropertiesService.getScriptProperties().getProperty('SLACK_WEBHOOK_URL');
+}
+
+/**
+ * Slack Webhook URL 설정 (최초 1회 실행 필요)
+ * Apps Script에서 이 함수를 실행하고 프롬프트에 Webhook URL 입력
+ */
+function 슬랙웹훅설정() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.prompt(
+    '🔔 Slack Webhook 설정',
+    'Slack Incoming Webhook URL을 입력하세요:',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response.getSelectedButton() === ui.Button.OK) {
+    const webhookUrl = response.getResponseText().trim();
+    if (webhookUrl.startsWith('https://hooks.slack.com/')) {
+      PropertiesService.getScriptProperties().setProperty('SLACK_WEBHOOK_URL', webhookUrl);
+      ui.alert('✅ Slack Webhook URL이 저장되었습니다!');
+      Logger.log('✅ Slack Webhook URL 설정 완료');
+    } else {
+      ui.alert('❌ 올바른 Slack Webhook URL이 아닙니다.');
+    }
+  }
+}
+
+/**
+ * Slack으로 메시지 전송
+ * @param {string} message - 메시지 텍스트
+ * @param {string} linkUrl - 링크 URL (선택)
+ * @param {string} linkTitle - 링크 제목 (선택)
+ */
+function 슬랙알림(message, linkUrl, linkTitle) {
+  const webhookUrl = getSlackWebhookUrl();
+  if (!webhookUrl) {
+    Logger.log('⚠️ Slack Webhook URL이 설정되지 않았습니다. 슬랙웹훅설정() 함수를 먼저 실행하세요.');
+    return;
+  }
+
+  try {
+    const payload = {
+      text: message
+    };
+
+    if (linkUrl) {
+      payload.attachments = [{
+        color: '#36a64f',
+        title: linkTitle || '바로가기',
+        title_link: linkUrl
+      }];
+    }
+
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+
+    const response = UrlFetchApp.fetch(webhookUrl, options);
+
+    if (response.getResponseCode() === 200) {
+      Logger.log('✅ Slack 알림 전송 완료');
+    } else {
+      Logger.log('⚠️ Slack 알림 실패:', response.getContentText());
+    }
+  } catch (e) {
+    Logger.log('❌ Slack 알림 오류:', e.message);
+  }
+}
+
+/**
+ * 일일 다이제스트 Slack 알림
+ */
+function 일일다이제스트_슬랙알림(dateStr, 참여인원) {
+  const url = `${CONFIG.WEB_APP_URL}?date=${dateStr}`;
+  const message = `📚 *${dateStr} 일일 다이제스트*가 생성되었습니다!\n참여 인원: ${참여인원}명`;
+  슬랙알림(message, url, '📖 다이제스트 보기');
+}
+
+/**
+ * 월간 다이제스트 Slack 알림
+ */
+function 월간다이제스트_슬랙알림(yearMonth) {
+  const url = `${CONFIG.WEB_APP_URL}?date=MONTHLY-${yearMonth}`;
+  const message = `📊 *${yearMonth} 월간 다이제스트*가 생성되었습니다!`;
+  슬랙알림(message, url, '📈 월간 분석 보기');
+}
 
 // ==================== 📋 시트 메뉴 ====================
 
@@ -4630,6 +4729,9 @@ function 일일AI다이제스트생성(dateStr) {
   // 🆕 월간 누적 데이터 저장 (매일 자동 누적)
   월간데이터누적(조원데이터, dateStr);
 
+  // 🆕 Slack 알림 전송
+  일일다이제스트_슬랙알림(dateStr, 조원데이터.length);
+
   return 통합다이제스트;
 }
 
@@ -4791,6 +4893,9 @@ function 월간AI다이제스트생성(yearMonth) {
   Logger.log(`\n${'='.repeat(60)}`);
   Logger.log(`✅ 월간 다이제스트 생성 완료`);
   Logger.log('='.repeat(60));
+
+  // 🆕 Slack 알림 전송
+  월간다이제스트_슬랙알림(yearMonth);
 
   return 분석결과;
 }
