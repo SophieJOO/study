@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 환경 설정 (API 키 포함)
+study_summary/.env
+study_summary/credentials.json
+
+# 생성된 출력물
+study_summary/output/
+study_summary/logs/
+
+# OS
+nul
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
