@@ -55,5 +55,5 @@ IMAGE_STYLE_PROMPT = """
 - 고해상도 (1920x1080)
 """
 
-# 마감 시간 (새벽 3시 기준으로 전날 날짜 계산)
-DEADLINE_HOUR = 3
+# 마감 시간 (새벽 5시 이전 실행 시 전날 날짜 사용)
+DEADLINE_HOUR = 5

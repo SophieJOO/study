@@ -129,23 +129,10 @@ async def _generate_infographic_async(
             # 5-1. 이름/날짜 오버레이
             _overlay_label(output_path, member_name, date)
 
-            # 6. 노트북 삭제 (정리)
-            await client.notebooks.delete(notebook.id)
-            notebook = None
-            logger.info(f"  노트북 삭제 완료")
-
             return output_path
 
     except Exception as e:
         logger.error(f"  인포그래픽 생성 오류: {e}")
-        # 노트북이 생성된 경우 정리 시도
-        if notebook is not None:
-            try:
-                async with await NotebookLMClient.from_storage() as cleanup_client:
-                    await cleanup_client.notebooks.delete(notebook.id)
-                    logger.info(f"  오류 후 노트북 정리 완료")
-            except Exception:
-                logger.warning(f"  노트북 정리 실패 (수동 삭제 필요)")
         return None
 
 
