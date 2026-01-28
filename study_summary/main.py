@@ -8,12 +8,17 @@
 """
 import sys
 import logging
+import subprocess
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict
 
 # 설정 모듈
 from config import LOG_DIR, OUTPUT_DIR, DEADLINE_HOUR
+
+# NotebookLM CLI 경로
+NOTEBOOKLM_CLI = Path.home() / "AppData/Roaming/Python/Python314/Scripts/notebooklm.exe"
 
 
 def setup_logging():
@@ -42,22 +47,95 @@ def get_target_date() -> str:
     return target.strftime("%Y-%m-%d")
 
 
-def run_pipeline(test_mode: bool = False):
+def check_notebooklm_auth() -> bool:
+    """NotebookLM 인증 상태 확인"""
+    if not NOTEBOOKLM_CLI.exists():
+        return False
+    try:
+        result = subprocess.run(
+            [str(NOTEBOOKLM_CLI), "auth", "check", "--test", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        import json
+        data = json.loads(result.stdout)
+        return data.get("status") == "ok"
+    except Exception:
+        return False
+
+
+def auto_login_notebooklm(wait_seconds: int = 30) -> bool:
+    """NotebookLM 자동 로그인 (브라우저 프로필 사용)"""
+    if not NOTEBOOKLM_CLI.exists():
+        print(f"오류: {NOTEBOOKLM_CLI} 파일을 찾을 수 없습니다.")
+        return False
+
+    print("NotebookLM 자동 로그인 시도...")
+    proc = subprocess.Popen(
+        [str(NOTEBOOKLM_CLI), "login"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    print(f"브라우저 로딩 대기 {wait_seconds}초...")
+    time.sleep(wait_seconds)
+
+    # Enter 전송
+    proc.stdin.write("\n")
+    proc.stdin.flush()
+
+    try:
+        stdout, _ = proc.communicate(timeout=30)
+        if "Authentication saved" in stdout:
+            print("자동 로그인 성공!")
+            return True
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+    print("자동 로그인 실패")
+    return False
+
+
+def ensure_notebooklm_auth() -> bool:
+    """NotebookLM 인증 확인 및 필요시 자동 로그인"""
+    if check_notebooklm_auth():
+        print("NotebookLM 인증: OK")
+        return True
+
+    print("NotebookLM 인증 만료, 자동 로그인 시도...")
+    if auto_login_notebooklm():
+        return check_notebooklm_auth()
+    return False
+
+
+def run_pipeline(test_mode: bool = False, target_date: str = None):
     """
     전체 파이프라인 실행 - 각 회원별 개별 인포그래픽 생성
-    
+
     Args:
         test_mode: True면 테스트 데이터 사용
+        target_date: 대상 날짜 (YYYY-MM-DD), None이면 자동 계산
     """
     logger = setup_logging()
     
     logger.info("=" * 50)
     logger.info("🚀 스터디 인포그래픽 자동 생성 시작")
     logger.info("=" * 50)
-    
-    target_date = get_target_date()
+
+    # 0단계: NotebookLM 인증 확인
+    logger.info("\n🔐 0단계: NotebookLM 인증 확인")
+    if not ensure_notebooklm_auth():
+        logger.error("NotebookLM 인증 실패! 수동 로그인이 필요합니다.")
+        logger.error("실행: notebooklm login")
+        return False
+
+    if target_date is None:
+        target_date = get_target_date()
     logger.info(f"📅 대상 날짜: {target_date}")
-    
+
     try:
         # 1단계: Google Drive 스캔 또는 테스트 데이터
         logger.info("\n📂 1단계: 공부 내용 수집")
@@ -221,14 +299,15 @@ def main():
     parser = argparse.ArgumentParser(description="스터디 인포그래픽 자동 생성")
     parser.add_argument("--test", action="store_true", help="테스트 데이터로 실행")
     parser.add_argument("--check", action="store_true", help="연결 테스트만 실행")
-    
+    parser.add_argument("--date", type=str, help="대상 날짜 (YYYY-MM-DD)")
+
     args = parser.parse_args()
-    
+
     if args.check:
         success = run_tests()
         sys.exit(0 if success else 1)
     else:
-        success = run_pipeline(test_mode=args.test)
+        success = run_pipeline(test_mode=args.test, target_date=args.date)
         sys.exit(0 if success else 1)
 
 
