@@ -99,13 +99,31 @@ def auto_login_notebooklm(wait_seconds: int = 30) -> bool:
     return False
 
 
+def refresh_session_via_playwright() -> bool:
+    """Playwright 영구 프로필로 세션 쿠키 갱신 시도"""
+    try:
+        from keep_auth import refresh_session
+        return refresh_session()
+    except Exception as e:
+        print(f"Playwright 세션 갱신 실패: {e}")
+        return False
+
+
 def ensure_notebooklm_auth() -> bool:
-    """NotebookLM 인증 확인 및 필요시 자동 로그인"""
+    """NotebookLM 인증 확인 및 필요시 자동 갱신"""
     if check_notebooklm_auth():
         print("NotebookLM 인증: OK")
         return True
 
-    print("NotebookLM 인증 만료, 자동 로그인 시도...")
+    # 1차: Playwright 영구 프로필로 세션 갱신 시도
+    print("NotebookLM 인증 만료, Playwright 세션 갱신 시도...")
+    if refresh_session_via_playwright():
+        if check_notebooklm_auth():
+            print("Playwright 세션 갱신으로 인증 복구 성공!")
+            return True
+
+    # 2차: 기존 자동 로그인 시도 (브라우저 팝업)
+    print("Playwright 갱신 실패, 브라우저 자동 로그인 시도...")
     if auto_login_notebooklm():
         return check_notebooklm_auth()
     return False
