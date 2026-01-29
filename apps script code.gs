@@ -2016,6 +2016,15 @@ function 초기설정() {
 
   Logger.log('트리거 6 설정 완료: 매일 새벽 6시 이번 주 주간집계 (빠른 버전)');
 
+  // 🆕 트리거 6-2: 매일 새벽 7시 지난주 결석 확정 (월요일에만 실제 동작)
+  ScriptApp.newTrigger('지난주결석확정')
+    .timeBased()
+    .atHour(7)
+    .everyDays(1)
+    .create();
+
+  Logger.log('트리거 6-2 설정 완료: 매일 새벽 7시 지난주 결석 확정 (월요일에만 실제 동작)');
+
   // 🆕 트리거 7: 매월 1일 오전 5시 월간 AI 분석 (전월, 누적된 데이터 사용)
   ScriptApp.newTrigger('월간AI분석_자동실행')
     .timeBased()
