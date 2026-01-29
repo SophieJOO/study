@@ -106,8 +106,9 @@ async def _generate_infographic_async(
             status = await client.artifacts.generate_infographic(
                 notebook.id,
                 language="ko",
-                orientation=InfographicOrientation.PORTRAIT,
+                orientation=InfographicOrientation.LANDSCAPE,
                 detail_level=InfographicDetail.DETAILED,
+                instructions="한글 텍스트를 정확하게 표기해주세요. 오타 없이 원본 내용을 그대로 유지하고, 글자가 깨지지 않도록 해주세요.",
             )
             logger.info(f"  인포그래픽 생성 요청 완료, 대기 중...")
 
