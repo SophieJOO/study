@@ -39,6 +39,7 @@ const CONFIG = {
   LONG_OFF_SHEET: '장기오프신청',
   ADMIN_SHEET: '관리자수정',  // 🆕 추가
   MONTHLY_SUMMARY_SHEET: '월별결산',  // 🆕 월별결산 시트
+  PENALTY_SHEET: '벌칙관리',  // 🆕 벌칙 관리 시트
   DIGEST_SHEET: '다이제스트',  // 🆕 다이제스트 시트 (드라이브 대신 시트 사용)
   
   // JSON 파일 출력 폴더 ID
@@ -470,6 +471,409 @@ function 월간다이제스트_슬랙PDF전송(yearMonth) {
     // PDF 생성 실패 시 링크로 대체
     Logger.log('⚠️ PDF 생성 실패, 링크로 대체 전송');
     월간다이제스트_슬랙알림(yearMonth);
+  }
+}
+
+// ==================== 🚨 벌칙 관리 ====================
+
+/**
+ * 벌칙관리 시트 생성 (초기설정에서 호출)
+ */
+function 벌칙관리시트_생성() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(CONFIG.PENALTY_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.PENALTY_SHEET);
+    const headers = ['연월', '조원명', '결석수', '상태', '수행여부', '확인일시'];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#f44336').setFontColor('white');
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(1, 100);
+    sheet.setColumnWidth(2, 120);
+    sheet.setColumnWidth(3, 80);
+    sheet.setColumnWidth(4, 100);
+    sheet.setColumnWidth(5, 100);
+    sheet.setColumnWidth(6, 180);
+    Logger.log('✅ 벌칙관리 시트 생성 완료');
+  } else {
+    Logger.log('✅ 벌칙관리 시트 이미 존재함');
+  }
+}
+
+/**
+ * 월별결산에서 벌칙 대상자를 벌칙관리 시트에 등록
+ * @param {string} yearMonth - 연월 (예: '2026-01')
+ */
+function 벌칙대상자_등록(yearMonth) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 월별결산 시트에서 해당 월 데이터 읽기
+  const summarySheet = ss.getSheetByName(CONFIG.MONTHLY_SUMMARY_SHEET);
+  if (!summarySheet || summarySheet.getLastRow() < 2) {
+    Logger.log('⚠️ 월별결산 데이터가 없습니다.');
+    return [];
+  }
+
+  const data = summarySheet.getRange(2, 1, summarySheet.getLastRow() - 1, 9).getValues();
+  const penaltyMembers = [];
+
+  for (const row of data) {
+    if (String(row[0]) === yearMonth && String(row[7]).includes('벌칙')) {
+      penaltyMembers.push({
+        name: String(row[1]),
+        absences: Number(row[5]),
+        status: String(row[7])
+      });
+    }
+  }
+
+  if (penaltyMembers.length === 0) {
+    Logger.log(`📋 ${yearMonth} 벌칙 대상자 없음`);
+    return [];
+  }
+
+  // 벌칙관리 시트에 등록
+  let penaltySheet = ss.getSheetByName(CONFIG.PENALTY_SHEET);
+  if (!penaltySheet) {
+    벌칙관리시트_생성();
+    penaltySheet = ss.getSheetByName(CONFIG.PENALTY_SHEET);
+  }
+
+  // 기존 데이터 확인 (중복 방지)
+  const existingData = penaltySheet.getLastRow() > 1
+    ? penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 2).getValues()
+    : [];
+  const existingKeys = new Set(existingData.map(r => `${r[0]}|${r[1]}`));
+
+  const newRows = [];
+  for (const member of penaltyMembers) {
+    const key = `${yearMonth}|${member.name}`;
+    if (!existingKeys.has(key)) {
+      newRows.push([yearMonth, member.name, member.absences, member.status, '미수행', '']);
+    }
+  }
+
+  if (newRows.length > 0) {
+    penaltySheet.getRange(penaltySheet.getLastRow() + 1, 1, newRows.length, 6).setValues(newRows);
+    // 색상 적용
+    for (let i = 0; i < newRows.length; i++) {
+      const rowNum = penaltySheet.getLastRow() - newRows.length + 1 + i;
+      penaltySheet.getRange(rowNum, 5).setBackground('#ffcdd2'); // 미수행 빨강
+    }
+    Logger.log(`🚨 ${yearMonth} 벌칙 대상자 ${newRows.length}명 등록`);
+  } else {
+    Logger.log(`📋 ${yearMonth} 벌칙 대상자 이미 등록됨`);
+  }
+
+  return penaltyMembers;
+}
+
+/**
+ * Slack Block Kit 벌칙 메시지 블록 생성
+ * @param {string} yearMonth - 연월
+ * @returns {Array} Block Kit blocks 배열
+ */
+function 벌칙메시지블록생성(yearMonth) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const penaltySheet = ss.getSheetByName(CONFIG.PENALTY_SHEET);
+
+  if (!penaltySheet || penaltySheet.getLastRow() < 2) {
+    return [];
+  }
+
+  const data = penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 6).getValues();
+  const members = data.filter(r => String(r[0]) === yearMonth);
+
+  if (members.length === 0) return [];
+
+  const year = yearMonth.split('-')[0];
+  const month = parseInt(yearMonth.split('-')[1]);
+
+  const blocks = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: `🚨 ${year}년 ${month}월 벌칙 대상자`, emoji: true }
+    },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: '벌칙 수행 완료 후 *✅ 완료* 버튼을 눌러주세요.' }
+    },
+    { type: 'divider' }
+  ];
+
+  for (const row of members) {
+    const name = String(row[1]);
+    const absences = Number(row[2]);
+    const completed = String(row[4]) === '완료';
+    const confirmedAt = row[5] ? String(row[5]) : '';
+
+    if (completed) {
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: `✅ *${name}* - 결석 ${absences}회 → 완료 (${confirmedAt})` }
+      });
+    } else {
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: `🚨 *${name}* - 결석 ${absences}회` },
+        accessory: {
+          type: 'button',
+          text: { type: 'plain_text', text: '✅ 완료', emoji: true },
+          style: 'primary',
+          action_id: 'penalty_complete',
+          value: JSON.stringify({ name: name, yearMonth: yearMonth })
+        }
+      });
+    }
+  }
+
+  // 요약
+  const doneCount = members.filter(r => String(r[4]) === '완료').length;
+  blocks.push({ type: 'divider' });
+  blocks.push({
+    type: 'context',
+    elements: [{ type: 'mrkdwn', text: `📊 수행 현황: ${doneCount}/${members.length}명 완료` }]
+  });
+
+  return blocks;
+}
+
+/**
+ * 벌칙 대상자 Slack 알림 (Block Kit 인터랙티브 메시지)
+ * @param {string} yearMonth - 연월
+ */
+function 벌칙대상자_슬랙알림(yearMonth) {
+  const token = getSlackBotToken();
+  const channel = getSlackChannelId();
+
+  if (!token) {
+    Logger.log('⚠️ Slack Bot Token이 설정되지 않았습니다.');
+    return;
+  }
+  if (!channel) {
+    Logger.log('⚠️ Slack 채널 ID가 설정되지 않았습니다.');
+    return;
+  }
+
+  const blocks = 벌칙메시지블록생성(yearMonth);
+  if (blocks.length === 0) {
+    Logger.log(`📋 ${yearMonth} 벌칙 대상자 없음 - Slack 알림 스킵`);
+    return;
+  }
+
+  try {
+    const response = UrlFetchApp.fetch('https://slack.com/api/chat.postMessage', {
+      method: 'post',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify({
+        channel: channel,
+        text: `🚨 ${yearMonth} 벌칙 대상자 알림`,
+        blocks: blocks
+      }),
+      muteHttpExceptions: true
+    });
+
+    const result = JSON.parse(response.getContentText());
+
+    if (result.ok) {
+      // 메시지 ts 저장 (나중에 업데이트용)
+      const props = PropertiesService.getScriptProperties();
+      props.setProperty('PENALTY_MSG_TS_' + yearMonth, result.ts);
+      props.setProperty('PENALTY_MSG_CHANNEL_' + yearMonth, channel);
+      Logger.log(`✅ ${yearMonth} 벌칙 알림 전송 완료 (ts: ${result.ts})`);
+    } else {
+      Logger.log(`❌ Slack 벌칙 알림 실패: ${result.error}`);
+    }
+  } catch (e) {
+    Logger.log('❌ Slack 벌칙 알림 오류: ' + e.message);
+  }
+}
+
+/**
+ * 벌칙 수행 완료 처리
+ * @param {string} memberName - 조원명
+ * @param {string} yearMonth - 연월
+ * @returns {boolean} 성공 여부
+ */
+function 벌칙완료처리(memberName, yearMonth) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const penaltySheet = ss.getSheetByName(CONFIG.PENALTY_SHEET);
+
+  if (!penaltySheet || penaltySheet.getLastRow() < 2) {
+    Logger.log('⚠️ 벌칙관리 시트가 비어있습니다.');
+    return false;
+  }
+
+  const data = penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 6).getValues();
+
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][0]) === yearMonth && String(data[i][1]) === memberName) {
+      const rowNum = i + 2;
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+      penaltySheet.getRange(rowNum, 5).setValue('완료');
+      penaltySheet.getRange(rowNum, 6).setValue(now);
+      penaltySheet.getRange(rowNum, 5).setBackground('#e8f5e9'); // 완료 초록
+      Logger.log(`✅ 벌칙 완료 처리: ${memberName} (${yearMonth}) - ${now}`);
+      return true;
+    }
+  }
+
+  Logger.log(`⚠️ 벌칙 기록을 찾을 수 없음: ${memberName} (${yearMonth})`);
+  return false;
+}
+
+/**
+ * Slack 인터랙션(버튼 클릭) 처리
+ * @param {Object} payload - Slack interaction payload
+ */
+function 슬랙인터랙션처리(payload) {
+  if (payload.type !== 'block_actions') {
+    return ContentService.createTextOutput('').setMimeType(ContentService.MimeType.TEXT);
+  }
+
+  const actions = payload.actions || [];
+  for (const action of actions) {
+    if (action.action_id === 'penalty_complete') {
+      try {
+        const value = JSON.parse(action.value);
+        벌칙완료처리(value.name, value.yearMonth);
+
+        // 원본 메시지 업데이트
+        const token = getSlackBotToken();
+        const props = PropertiesService.getScriptProperties();
+        const msgTs = props.getProperty('PENALTY_MSG_TS_' + value.yearMonth);
+        const msgChannel = props.getProperty('PENALTY_MSG_CHANNEL_' + value.yearMonth);
+
+        if (token && msgTs && msgChannel) {
+          const updatedBlocks = 벌칙메시지블록생성(value.yearMonth);
+          UrlFetchApp.fetch('https://slack.com/api/chat.update', {
+            method: 'post',
+            headers: {
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json'
+            },
+            payload: JSON.stringify({
+              channel: msgChannel,
+              ts: msgTs,
+              text: `🚨 ${value.yearMonth} 벌칙 대상자 알림`,
+              blocks: updatedBlocks
+            }),
+            muteHttpExceptions: true
+          });
+        }
+      } catch (e) {
+        Logger.log('❌ 벌칙 완료 처리 오류: ' + e.message);
+      }
+    }
+  }
+
+  return ContentService.createTextOutput('').setMimeType(ContentService.MimeType.TEXT);
+}
+
+/**
+ * 웹앱 POST 핸들러 (Slack Interactivity)
+ */
+function doPost(e) {
+  try {
+    if (e.parameter && e.parameter.payload) {
+      const payload = JSON.parse(e.parameter.payload);
+      return 슬랙인터랙션처리(payload);
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'Unknown request' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    Logger.log('❌ doPost 오류: ' + error.message);
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: error.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
+ * 벌칙 리마인더 (매주 월요일 실행)
+ * 미수행 벌칙이 있으면 Slack으로 리마인더 전송
+ */
+function 벌칙리마인더() {
+  const now = new Date();
+  if (now.getDay() !== 1) {
+    Logger.log('벌칙리마인더: 월요일이 아니므로 스킵');
+    return;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const penaltySheet = ss.getSheetByName(CONFIG.PENALTY_SHEET);
+
+  if (!penaltySheet || penaltySheet.getLastRow() < 2) {
+    Logger.log('벌칙리마인더: 벌칙 데이터 없음');
+    return;
+  }
+
+  const data = penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 6).getValues();
+
+  // 미수행 건이 있는 연월 목록
+  const pendingMonths = new Set();
+  for (const row of data) {
+    if (String(row[4]) === '미수행') {
+      pendingMonths.add(String(row[0]));
+    }
+  }
+
+  if (pendingMonths.size === 0) {
+    Logger.log('벌칙리마인더: 미수행 벌칙 없음');
+    return;
+  }
+
+  const token = getSlackBotToken();
+  const channel = getSlackChannelId();
+  if (!token || !channel) {
+    Logger.log('⚠️ Slack 설정 누락으로 리마인더 스킵');
+    return;
+  }
+
+  // 각 연월별로 리마인더 전송
+  for (const yearMonth of pendingMonths) {
+    const blocks = 벌칙메시지블록생성(yearMonth);
+    if (blocks.length === 0) continue;
+
+    // 리마인더 헤더 추가
+    blocks.unshift({
+      type: 'section',
+      text: { type: 'mrkdwn', text: '⏰ *벌칙 수행 확인 리마인더*\n아직 벌칙 미수행자가 있습니다. 확인해주세요.' }
+    });
+
+    try {
+      const response = UrlFetchApp.fetch('https://slack.com/api/chat.postMessage', {
+        method: 'post',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify({
+          channel: channel,
+          text: `⏰ ${yearMonth} 벌칙 미수행 리마인더`,
+          blocks: blocks
+        }),
+        muteHttpExceptions: true
+      });
+
+      const result = JSON.parse(response.getContentText());
+      if (result.ok) {
+        // 리마인더 메시지의 ts도 저장 (버튼 업데이트용)
+        const props = PropertiesService.getScriptProperties();
+        props.setProperty('PENALTY_MSG_TS_' + yearMonth, result.ts);
+        props.setProperty('PENALTY_MSG_CHANNEL_' + yearMonth, channel);
+        Logger.log(`✅ ${yearMonth} 벌칙 리마인더 전송 완료`);
+      } else {
+        Logger.log(`❌ 리마인더 전송 실패: ${result.error}`);
+      }
+    } catch (e) {
+      Logger.log('❌ 리마인더 오류: ' + e.message);
+    }
   }
 }
 
@@ -2043,6 +2447,15 @@ function 초기설정() {
 
   Logger.log('트리거 8 설정 완료: 매월 1일 오전 6시 전월 원본 파일 수집 (옵시디언용)');
 
+  // 🆕 트리거 9: 매일 오전 9시 벌칙 리마인더 (월요일에만 실제 동작)
+  ScriptApp.newTrigger('벌칙리마인더')
+    .timeBased()
+    .atHour(9)
+    .everyDays(1)
+    .create();
+
+  Logger.log('트리거 9 설정 완료: 매일 오전 9시 벌칙 리마인더 (월요일에만 실제 동작)');
+
   // 제출기록 시트
   let recordSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!recordSheet) {
@@ -2092,7 +2505,10 @@ function 초기설정() {
   } else {
     Logger.log('✅ 월별결산 시트 이미 존재함');
   }
-  
+
+  // 🆕 벌칙관리 시트 초기화
+  벌칙관리시트_생성();
+
   Logger.log('초기 설정 완료!');
   Logger.log('');
   Logger.log('⚠️ 다음 작업 필요:');
@@ -3489,9 +3905,17 @@ function 월별결산생성() {
       summarySheet.getRange(rowNum, 8).setBackground('#e8f5e9');
     }
   }
-  
+
   Logger.log(`✅ ${yearMonth} 월별결산 저장 완료: ${summaryData.length}명`);
   Logger.log('');
+
+  // 벌칙 대상자 등록 및 슬랙 알림
+  try {
+    벌칙대상자_등록(yearMonth);
+    벌칙대상자_슬랙알림(yearMonth);
+  } catch (e) {
+    Logger.log('⚠️ 벌칙 알림 오류 (결산은 정상 완료): ' + e.message);
+  }
 }
 
 /**
