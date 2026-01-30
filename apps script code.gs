@@ -518,10 +518,7 @@ function 벌칙대상자_등록(yearMonth) {
   const data = weeklySheet.getRange(2, 1, weeklySheet.getLastRow() - 1, 9).getDisplayValues();
   const penaltyMembers = [];
 
-  // 디버그: 존재하는 년월 목록 확인
-  const allYMs = new Set(data.map(r => String(r[0]).trim()));
-  Logger.log(`벌칙 대상자 검색 (주간집계 기준): yearMonth="${yearMonth}", 총 ${data.length}행`);
-  Logger.log(`주간집계 존재 년월: ${[...allYMs].join(', ')}`);
+  Logger.log('벌칙 대상자 검색 (주간집계 기준): ' + yearMonth);
 
   // 조원별 총결석 합산 (주간집계: 년월, 조원명, 주차, 인증, 필요, 장기오프일, 결석, 상태, 비고)
   const memberAbsences = {};
@@ -541,15 +538,6 @@ function 벌칙대상자_등록(yearMonth) {
       memberAbsences[name] += absences;
     }
   }
-
-  // 디버그: 2025-12 첫 매칭 행의 raw 데이터 출력
-  const sampleRow = data.find(r => String(r[0]).trim() === yearMonth);
-  if (sampleRow) {
-    Logger.log(`샘플 행: ${sampleRow.map((v, i) => `[${i}]="${v}"`).join(', ')}`);
-  }
-
-  // 디버그: 조원별 총결석 출력
-  Logger.log(`조원별 총결석: ${Object.entries(memberAbsences).map(([n, a]) => `${n}=${a}`).join(', ')}`);
 
   // 총결석 4회 이상 → 벌칙 대상
   for (const [name, totalAbsences] of Object.entries(memberAbsences)) {
@@ -748,36 +736,6 @@ function 벌칙완료처리(memberName, yearMonth) {
 
   Logger.log(`⚠️ 벌칙 기록을 찾을 수 없음: ${memberName} (${yearMonth})`);
   return false;
-}
-
-/**
- * Slack 인터랙션(버튼 클릭) 처리
- * @param {Object} payload - Slack interaction payload
- */
-function 슬랙인터랙션처리(payload) {
-  // Slack 인터랙션은 사용하지 않음 (URL 버튼 방식 사용)
-  return ContentService.createTextOutput('').setMimeType(ContentService.MimeType.TEXT);
-}
-
-/**
- * 웹앱 POST 핸들러 (Slack Interactivity)
- */
-function doPost(e) {
-  try {
-    if (e.parameter && e.parameter.payload) {
-      const payload = JSON.parse(e.parameter.payload);
-      return 슬랙인터랙션처리(payload);
-    }
-
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: 'Unknown request' }))
-      .setMimeType(ContentService.MimeType.JSON);
-  } catch (error) {
-    Logger.log('❌ doPost 오류: ' + error.message);
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: error.message }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
 }
 
 /**
@@ -2032,58 +1990,6 @@ function JSON파일생성() {
 }
 
 /**
- * 11월 JSON 재생성 (편의 함수)
- */
-function JSON재생성_2025년11월() {
-  특정월JSON생성(2025, 11);
-}
-
-/**
- * 11월 주간집계 재생성 (편의 함수)
- * 주의: 월별주간집계는 0-based month 사용 (11월 = 10)
- */
-function 주간집계재생성_2025년11월() {
-  const year = 2025;
-  const month = 10;  // 11월 = 10 (0-based)
-
-  const 집계결과 = 월별주간집계(year, month);
-  주간집계저장(year, month, 집계결과);
-  주간집계JSON저장(year, month, 집계결과);
-}
-
-/**
- * 11월 전체 재생성 (일간 JSON + 주간집계)
- */
-function 전체재생성_2025년11월() {
-  Logger.log('=== 2025년 11월 전체 재생성 시작 ===');
-
-  // 일간 JSON (1-based month)
-  특정월JSON생성(2025, 11);
-
-  // 주간집계 (0-based month)
-  const 집계결과 = 월별주간집계(2025, 10);
-  주간집계저장(2025, 10, 집계결과);
-  주간집계JSON저장(2025, 10, 집계결과);
-
-  Logger.log('=== 2025년 11월 전체 재생성 완료 ===');
-}
-
-/**
- * 11월 월간 다이제스트 생성 (편의 함수)
- */
-function 월간다이제스트생성_2025년11월() {
-  월간AI다이제스트생성('2025-11');
-}
-
-/**
- * 11월 월간 데이터 수동 수집 (편의 함수)
- * 기존 폴더에서 11월 데이터를 수집하여 monthly-data-2025-11.json 생성
- */
-function 월간데이터수집_2025년11월() {
-  월간데이터수동수집('2025-11');
-}
-
-/**
  * 특정 월의 데이터를 폴더에서 수동 수집
  * @param {string} yearMonth - 년월 (yyyy-MM)
  */
@@ -2832,53 +2738,6 @@ function 관리자_기록조회(memberName, month = null) {
   
   return records;
 }
-/**
- * 🆕 구글 폼 응답 시트 구조 확인
- */
-function 폼응답시트구조확인() {
-  Logger.log('=== 폼 응답 시트 구조 확인 ===');
-  
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.LONG_OFF_SHEET);
-  
-  if (!sheet) {
-    Logger.log('❌ 시트를 찾을 수 없음: ' + CONFIG.LONG_OFF_SHEET);
-    Logger.log('구글 폼을 스프레드시트에 연결했는지 확인하세요.');
-    return;
-  }
-  
-  Logger.log('✅ 시트 발견: ' + CONFIG.LONG_OFF_SHEET);
-  Logger.log('');
-  
-  // 헤더 확인
-  const lastCol = sheet.getLastColumn();
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-  
-  Logger.log('📊 열 구조:');
-  headers.forEach((header, index) => {
-    const columnLetter = String.fromCharCode(65 + index); // A, B, C, ...
-    Logger.log(`  ${columnLetter}열 (index ${index}): ${header}`);
-  });
-  
-  Logger.log('');
-  
-  // 첫 번째 데이터 확인
-  if (sheet.getLastRow() > 1) {
-    Logger.log('📝 첫 번째 데이터:');
-    const firstData = sheet.getRange(2, 1, 1, lastCol).getValues()[0];
-    firstData.forEach((value, index) => {
-      const columnLetter = String.fromCharCode(65 + index);
-      Logger.log(`  ${columnLetter}열: ${value} (타입: ${typeof value})`);
-    });
-  } else {
-    Logger.log('⚠️ 데이터가 없습니다. 구글 폼에서 테스트 신청을 해보세요.');
-  }
-  
-  Logger.log('');
-  Logger.log('💡 CONFIG.FORM_COLUMNS 설정 확인:');
-  Logger.log(JSON.stringify(CONFIG.FORM_COLUMNS, null, 2));
-}
-
 // ==================== 🆕 간편 관리자 수정 시스템 ====================
 
 /**
@@ -5157,116 +5016,6 @@ function 이번주JSON업데이트(year, month, 현재주차, 이번주집계, �
   }
 }
 
-function JSON파일ID확인() {
-  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
-
-  // 현재 연월 계산
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-  const yearMonth = year + '-' + String(month).padStart(2, '0');
-
-  Logger.log('');
-  Logger.log('='.repeat(60));
-  Logger.log('📁 JSON 파일 ID 목록 (HTML 설정용)');
-  Logger.log('='.repeat(60));
-  Logger.log('');
-
-  // 1. 일간 출석 파일
-  const attendanceFileName = `attendance_summary_${yearMonth}.json`;
-  const attendanceFiles = folder.getFilesByName(attendanceFileName);
-
-  if (attendanceFiles.hasNext()) {
-    const file = attendanceFiles.next();
-    const fileId = file.getId();
-    const url = `https://drive.google.com/uc?export=download&id=${fileId}`;
-
-    Logger.log('📄 일간 출석 파일:');
-    Logger.log('   파일명: ' + attendanceFileName);
-    Logger.log('   파일 ID: ' + fileId);
-    Logger.log('   전체 URL: ' + url);
-    Logger.log('');
-  } else {
-    Logger.log('❌ 일간 출석 파일을 찾을 수 없습니다: ' + attendanceFileName);
-    Logger.log('   → 먼저 월말집계() 함수를 실행해주세요!');
-    Logger.log('');
-  }
-
-  // 2. 주간 집계 파일
-  const weeklyFileName = `weekly_summary_${yearMonth}.json`;
-  const weeklyFiles = folder.getFilesByName(weeklyFileName);
-
-  if (weeklyFiles.hasNext()) {
-    const file = weeklyFiles.next();
-    const fileId = file.getId();
-    const url = `https://drive.google.com/uc?export=download&id=${fileId}`;
-
-    Logger.log('📊 주간 집계 파일:');
-    Logger.log('   파일명: ' + weeklyFileName);
-    Logger.log('   파일 ID: ' + fileId);
-    Logger.log('   전체 URL: ' + url);
-    Logger.log('');
-  } else {
-    Logger.log('❌ 주간 집계 파일을 찾을 수 없습니다: ' + weeklyFileName);
-    Logger.log('   → 먼저 이번주주간집계() 함수를 실행해주세요!');
-    Logger.log('');
-  }
-
-  Logger.log('-'.repeat(60));
-  Logger.log('📋 HTML 설정 방법:');
-  Logger.log('-'.repeat(60));
-  Logger.log('');
-  Logger.log('1. GitHub에서 index.html 파일 열기');
-  Logger.log('2. Ctrl+F로 "JSON_FILE_IDS" 검색');
-  Logger.log('3. 위의 파일 ID들을 다음과 같이 입력:');
-  Logger.log('');
-  Logger.log('   const JSON_FILE_IDS = {');
-  Logger.log('       attendance: \'위의_일간_출석_파일_ID\',');
-  Logger.log('       weekly: \'위의_주간_집계_파일_ID\'');
-  Logger.log('   };');
-  Logger.log('');
-  Logger.log('4. 커밋 후 GitHub Pages에서 확인');
-  Logger.log('');
-  Logger.log('='.repeat(60));
-  Logger.log('');
-}
-
-function JSON폴더URL확인() {
-  const folder = DriveApp.getFolderById(CONFIG.JSON_FOLDER_ID);
-
-  Logger.log('');
-  Logger.log('📁 JSON 폴더 정보:');
-  Logger.log('   폴더 ID: ' + CONFIG.JSON_FOLDER_ID);
-  Logger.log('   폴더명: ' + folder.getName());
-  Logger.log('   폴더 URL: ' + folder.getUrl());
-  Logger.log('');
-  Logger.log('📄 폴더 내 JSON 파일 목록:');
-  Logger.log('');
-
-  const files = folder.getFiles();
-  let count = 0;
-
-  while (files.hasNext()) {
-    const file = files.next();
-    const fileName = file.getName();
-
-    if (fileName.endsWith('.json')) {
-      count++;
-      Logger.log(`   ${count}. ${fileName}`);
-      Logger.log('      파일 ID: ' + file.getId());
-      Logger.log('      URL: https://drive.google.com/uc?export=download&id=' + file.getId());
-      Logger.log('');
-    }
-  }
-
-  if (count === 0) {
-    Logger.log('   (JSON 파일이 없습니다)');
-    Logger.log('');
-  }
-
-  Logger.log('='.repeat(60));
-}
-
 // ==================== AI 다이제스트 HTML 생성 시스템 ====================
 
 /**
@@ -6954,16 +6703,3 @@ function PDF텍스트추출(pdfFile) {
   }
 }
 
-/**
- * 벌칙 시스템 테스트 (12월 기준)
- * 테스트 후 삭제해도 됩니다.
- */
-function 벌칙테스트() {
-  // 12월 주간집계 재생성 (0-based month)
-  var 결과 = 월별주간집계(2025, 11);
-  주간집계저장(2025, 11, 결과);
-
-  // 벌칙 등록 + 알림
-  벌칙대상자_등록('2025-12');
-  벌칙대상자_슬랙알림('2025-12');
-}
