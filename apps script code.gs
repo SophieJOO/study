@@ -501,31 +501,68 @@ function 벌칙관리시트_생성() {
 }
 
 /**
- * 월별결산에서 벌칙 대상자를 벌칙관리 시트에 등록
+ * 주간집계에서 벌칙 대상자를 벌칙관리 시트에 등록
+ * 벌칙 기준: 주간집계 총결석수 4회 이상
  * @param {string} yearMonth - 연월 (예: '2026-01')
  */
 function 벌칙대상자_등록(yearMonth) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // 월별결산 시트에서 해당 월 데이터 읽기
-  const summarySheet = ss.getSheetByName(CONFIG.MONTHLY_SUMMARY_SHEET);
-  if (!summarySheet || summarySheet.getLastRow() < 2) {
-    Logger.log('⚠️ 월별결산 데이터가 없습니다.');
+  // 주간집계 시트에서 해당 월 데이터 읽기
+  const weeklySheet = ss.getSheetByName('주간집계');
+  if (!weeklySheet || weeklySheet.getLastRow() < 2) {
+    Logger.log('⚠️ 주간집계 데이터가 없습니다.');
     return [];
   }
 
-  const data = summarySheet.getRange(2, 1, summarySheet.getLastRow() - 1, 9).getValues();
+  const data = weeklySheet.getRange(2, 1, weeklySheet.getLastRow() - 1, 9).getDisplayValues();
   const penaltyMembers = [];
 
+  // 디버그: 존재하는 년월 목록 확인
+  const allYMs = new Set(data.map(r => String(r[0]).trim()));
+  Logger.log(`벌칙 대상자 검색 (주간집계 기준): yearMonth="${yearMonth}", 총 ${data.length}행`);
+  Logger.log(`주간집계 존재 년월: ${[...allYMs].join(', ')}`);
+
+  // 조원별 총결석 합산 (주간집계: 년월, 조원명, 주차, 인증, 필요, 장기오프일, 결석, 상태, 비고)
+  const memberAbsences = {};
   for (const row of data) {
-    if (String(row[0]) === yearMonth && String(row[7]).includes('벌칙')) {
+    const rowYM = String(row[0]).trim();
+    if (rowYM !== yearMonth) continue;
+
+    const name = String(row[1]).trim();
+    const absences = Number(row[6]) || 0;
+    const isFullLongOff = String(row[8]).trim() === '전체장기오프';
+
+    if (!memberAbsences[name]) {
+      memberAbsences[name] = 0;
+    }
+    // 전체장기오프 주는 결석에서 제외
+    if (!isFullLongOff) {
+      memberAbsences[name] += absences;
+    }
+  }
+
+  // 디버그: 2025-12 첫 매칭 행의 raw 데이터 출력
+  const sampleRow = data.find(r => String(r[0]).trim() === yearMonth);
+  if (sampleRow) {
+    Logger.log(`샘플 행: ${sampleRow.map((v, i) => `[${i}]="${v}"`).join(', ')}`);
+  }
+
+  // 디버그: 조원별 총결석 출력
+  Logger.log(`조원별 총결석: ${Object.entries(memberAbsences).map(([n, a]) => `${n}=${a}`).join(', ')}`);
+
+  // 총결석 4회 이상 → 벌칙 대상
+  for (const [name, totalAbsences] of Object.entries(memberAbsences)) {
+    if (totalAbsences >= 4) {
       penaltyMembers.push({
-        name: String(row[1]),
-        absences: Number(row[5]),
-        status: String(row[7])
+        name: name,
+        absences: totalAbsences,
+        status: '🚨 벌칙'
       });
     }
   }
+
+  Logger.log(`벌칙 대상자 ${penaltyMembers.length}명 발견: ${penaltyMembers.map(m => `${m.name}(${m.absences}회)`).join(', ')}`);
 
   if (penaltyMembers.length === 0) {
     Logger.log(`📋 ${yearMonth} 벌칙 대상자 없음`);
@@ -581,8 +618,8 @@ function 벌칙메시지블록생성(yearMonth) {
     return [];
   }
 
-  const data = penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 6).getValues();
-  const members = data.filter(r => String(r[0]) === yearMonth);
+  const data = penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 6).getDisplayValues();
+  const members = data.filter(r => String(r[0]).trim() === yearMonth);
 
   if (members.length === 0) return [];
 
@@ -610,18 +647,21 @@ function 벌칙메시지블록생성(yearMonth) {
     if (completed) {
       blocks.push({
         type: 'section',
-        text: { type: 'mrkdwn', text: `✅ *${name}* - 결석 ${absences}회 → 완료 (${confirmedAt})` }
+        text: { type: 'mrkdwn', text: '✅ *' + name + '* - 결석 ' + absences + '회 → 완료 (' + confirmedAt + ')' }
       });
     } else {
+      var completeUrl = CONFIG.WEB_APP_URL
+        + '?action=penaltyComplete'
+        + '&name=' + encodeURIComponent(name)
+        + '&yearMonth=' + encodeURIComponent(yearMonth);
       blocks.push({
         type: 'section',
-        text: { type: 'mrkdwn', text: `🚨 *${name}* - 결석 ${absences}회` },
+        text: { type: 'mrkdwn', text: '🚨 *' + name + '* - 결석 ' + absences + '회' },
         accessory: {
           type: 'button',
           text: { type: 'plain_text', text: '✅ 완료', emoji: true },
           style: 'primary',
-          action_id: 'penalty_complete',
-          value: JSON.stringify({ name: name, yearMonth: yearMonth })
+          url: completeUrl
         }
       });
     }
@@ -639,19 +679,14 @@ function 벌칙메시지블록생성(yearMonth) {
 }
 
 /**
- * 벌칙 대상자 Slack 알림 (Block Kit 인터랙티브 메시지)
+ * 벌칙 대상자 Slack 알림 (웹훅 + Block Kit 인터랙티브 메시지)
+ * 일간 다이제스트와 동일한 웹훅 방식 사용
  * @param {string} yearMonth - 연월
  */
 function 벌칙대상자_슬랙알림(yearMonth) {
-  const token = getSlackBotToken();
-  const channel = getSlackChannelId();
-
-  if (!token) {
-    Logger.log('⚠️ Slack Bot Token이 설정되지 않았습니다.');
-    return;
-  }
-  if (!channel) {
-    Logger.log('⚠️ Slack 채널 ID가 설정되지 않았습니다.');
+  const webhookUrl = getSlackWebhookUrl();
+  if (!webhookUrl) {
+    Logger.log('⚠️ Slack Webhook URL이 설정되지 않았습니다. 슬랙웹훅설정() 함수를 먼저 실행하세요.');
     return;
   }
 
@@ -662,30 +697,20 @@ function 벌칙대상자_슬랙알림(yearMonth) {
   }
 
   try {
-    const response = UrlFetchApp.fetch('https://slack.com/api/chat.postMessage', {
+    const response = UrlFetchApp.fetch(webhookUrl, {
       method: 'post',
-      headers: {
-        'Authorization': 'Bearer ' + token,
-        'Content-Type': 'application/json'
-      },
+      contentType: 'application/json',
       payload: JSON.stringify({
-        channel: channel,
-        text: `🚨 ${yearMonth} 벌칙 대상자 알림`,
+        text: '🚨 ' + yearMonth + ' 벌칙 대상자 알림',
         blocks: blocks
       }),
       muteHttpExceptions: true
     });
 
-    const result = JSON.parse(response.getContentText());
-
-    if (result.ok) {
-      // 메시지 ts 저장 (나중에 업데이트용)
-      const props = PropertiesService.getScriptProperties();
-      props.setProperty('PENALTY_MSG_TS_' + yearMonth, result.ts);
-      props.setProperty('PENALTY_MSG_CHANNEL_' + yearMonth, channel);
-      Logger.log(`✅ ${yearMonth} 벌칙 알림 전송 완료 (ts: ${result.ts})`);
+    if (response.getResponseCode() === 200) {
+      Logger.log('✅ ' + yearMonth + ' 벌칙 알림 전송 완료');
     } else {
-      Logger.log(`❌ Slack 벌칙 알림 실패: ${result.error}`);
+      Logger.log('❌ Slack 벌칙 알림 실패: ' + response.getContentText());
     }
   } catch (e) {
     Logger.log('❌ Slack 벌칙 알림 오류: ' + e.message);
@@ -707,10 +732,10 @@ function 벌칙완료처리(memberName, yearMonth) {
     return false;
   }
 
-  const data = penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 6).getValues();
+  const data = penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 6).getDisplayValues();
 
   for (let i = 0; i < data.length; i++) {
-    if (String(data[i][0]) === yearMonth && String(data[i][1]) === memberName) {
+    if (String(data[i][0]).trim() === yearMonth && String(data[i][1]).trim() === memberName) {
       const rowNum = i + 2;
       const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
       penaltySheet.getRange(rowNum, 5).setValue('완료');
@@ -730,46 +755,7 @@ function 벌칙완료처리(memberName, yearMonth) {
  * @param {Object} payload - Slack interaction payload
  */
 function 슬랙인터랙션처리(payload) {
-  if (payload.type !== 'block_actions') {
-    return ContentService.createTextOutput('').setMimeType(ContentService.MimeType.TEXT);
-  }
-
-  const actions = payload.actions || [];
-  for (const action of actions) {
-    if (action.action_id === 'penalty_complete') {
-      try {
-        const value = JSON.parse(action.value);
-        벌칙완료처리(value.name, value.yearMonth);
-
-        // 원본 메시지 업데이트
-        const token = getSlackBotToken();
-        const props = PropertiesService.getScriptProperties();
-        const msgTs = props.getProperty('PENALTY_MSG_TS_' + value.yearMonth);
-        const msgChannel = props.getProperty('PENALTY_MSG_CHANNEL_' + value.yearMonth);
-
-        if (token && msgTs && msgChannel) {
-          const updatedBlocks = 벌칙메시지블록생성(value.yearMonth);
-          UrlFetchApp.fetch('https://slack.com/api/chat.update', {
-            method: 'post',
-            headers: {
-              'Authorization': 'Bearer ' + token,
-              'Content-Type': 'application/json'
-            },
-            payload: JSON.stringify({
-              channel: msgChannel,
-              ts: msgTs,
-              text: `🚨 ${value.yearMonth} 벌칙 대상자 알림`,
-              blocks: updatedBlocks
-            }),
-            muteHttpExceptions: true
-          });
-        }
-      } catch (e) {
-        Logger.log('❌ 벌칙 완료 처리 오류: ' + e.message);
-      }
-    }
-  }
-
+  // Slack 인터랙션은 사용하지 않음 (URL 버튼 방식 사용)
   return ContentService.createTextOutput('').setMimeType(ContentService.MimeType.TEXT);
 }
 
@@ -813,12 +799,12 @@ function 벌칙리마인더() {
     return;
   }
 
-  const data = penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 6).getValues();
+  const data = penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 6).getDisplayValues();
 
   // 미수행 건이 있는 연월 목록
   const pendingMonths = new Set();
   for (const row of data) {
-    if (String(row[4]) === '미수행') {
+    if (String(row[4]).trim() === '미수행') {
       pendingMonths.add(String(row[0]));
     }
   }
@@ -828,10 +814,9 @@ function 벌칙리마인더() {
     return;
   }
 
-  const token = getSlackBotToken();
-  const channel = getSlackChannelId();
-  if (!token || !channel) {
-    Logger.log('⚠️ Slack 설정 누락으로 리마인더 스킵');
+  const webhookUrl = getSlackWebhookUrl();
+  if (!webhookUrl) {
+    Logger.log('⚠️ Slack Webhook URL 설정 누락으로 리마인더 스킵');
     return;
   }
 
@@ -847,29 +832,20 @@ function 벌칙리마인더() {
     });
 
     try {
-      const response = UrlFetchApp.fetch('https://slack.com/api/chat.postMessage', {
+      const response = UrlFetchApp.fetch(webhookUrl, {
         method: 'post',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json'
-        },
+        contentType: 'application/json',
         payload: JSON.stringify({
-          channel: channel,
-          text: `⏰ ${yearMonth} 벌칙 미수행 리마인더`,
+          text: '⏰ ' + yearMonth + ' 벌칙 미수행 리마인더',
           blocks: blocks
         }),
         muteHttpExceptions: true
       });
 
-      const result = JSON.parse(response.getContentText());
-      if (result.ok) {
-        // 리마인더 메시지의 ts도 저장 (버튼 업데이트용)
-        const props = PropertiesService.getScriptProperties();
-        props.setProperty('PENALTY_MSG_TS_' + yearMonth, result.ts);
-        props.setProperty('PENALTY_MSG_CHANNEL_' + yearMonth, channel);
-        Logger.log(`✅ ${yearMonth} 벌칙 리마인더 전송 완료`);
+      if (response.getResponseCode() === 200) {
+        Logger.log('✅ ' + yearMonth + ' 벌칙 리마인더 전송 완료');
       } else {
-        Logger.log(`❌ 리마인더 전송 실패: ${result.error}`);
+        Logger.log('❌ 리마인더 전송 실패: ' + response.getContentText());
       }
     } catch (e) {
       Logger.log('❌ 리마인더 오류: ' + e.message);
@@ -3157,6 +3133,42 @@ function doGet(e) {
   try {
     const params = e.parameter;
 
+    // 0. 벌칙 완료 처리 (Slack 버튼 → 브라우저)
+    if (params.action === 'penaltyComplete') {
+      var name = params.name;
+      var yearMonth = params.yearMonth;
+      Logger.log('벌칙 완료 처리: ' + name + ' (' + yearMonth + ')');
+      var success = 벌칙완료처리(name, yearMonth);
+
+      // Slack 알림
+      if (success) {
+        var webhookUrl = getSlackWebhookUrl();
+        if (webhookUrl) {
+          UrlFetchApp.fetch(webhookUrl, {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({
+              text: '✅ *' + name + '* (' + yearMonth + ') 벌칙 수행 완료 처리됨'
+            }),
+            muteHttpExceptions: true
+          });
+        }
+      }
+
+      var resultMsg = success ? '✅ ' + name + '님 벌칙 수행 완료 처리되었습니다.' : '❌ 처리 실패: 해당 기록을 찾을 수 없습니다.';
+      var html = '<html><head><meta charset="utf-8"><style>'
+        + 'body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}'
+        + '.card{background:white;padding:40px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,0.1);text-align:center;max-width:400px}'
+        + '.ok{color:#4CAF50;font-size:48px}.fail{color:#f44336;font-size:48px}'
+        + '</style></head><body><div class="card">'
+        + '<div class="' + (success ? 'ok' : 'fail') + '">' + (success ? '✅' : '❌') + '</div>'
+        + '<h2>' + resultMsg + '</h2>'
+        + '<p style="color:#888">' + yearMonth + '</p>'
+        + '<p style="color:#aaa;font-size:12px">이 탭을 닫아도 됩니다.</p>'
+        + '</div></body></html>';
+      return HtmlService.createHtmlOutput(html).setTitle('벌칙 완료');
+    }
+
     // 1. 다이제스트 HTML 서빙 (date 파라미터)
     if (params.date) {
       Logger.log('다이제스트 HTML 서빙 시작. 날짜:', params.date);
@@ -3909,8 +3921,14 @@ function 월별결산생성() {
   Logger.log(`✅ ${yearMonth} 월별결산 저장 완료: ${summaryData.length}명`);
   Logger.log('');
 
-  // 벌칙 대상자 등록 및 슬랙 알림
+  // 전월 주간집계 재생성 후 벌칙 대상자 등록 및 슬랙 알림
   try {
+    const [pYear, pMonth] = yearMonth.split('-').map(Number);
+    Logger.log('🔄 전월 주간집계 재생성 중... (' + yearMonth + ')');
+    var 집계결과 = 월별주간집계(pYear, pMonth - 1);  // 0-based month
+    주간집계저장(pYear, pMonth - 1, 집계결과);
+    Logger.log('✅ 전월 주간집계 재생성 완료');
+
     벌칙대상자_등록(yearMonth);
     벌칙대상자_슬랙알림(yearMonth);
   } catch (e) {
@@ -4607,9 +4625,9 @@ function 주간집계저장(year, month, 집계결과) {
   const 년월 = `${year}-${String(month + 1).padStart(2, '0')}`;
 
   // 기존 데이터 삭제 (해당 년월)
-  const data = sheet.getDataRange().getValues();
+  const data = sheet.getDataRange().getDisplayValues();
   for (let i = data.length - 1; i >= 1; i--) {
-    if (data[i][0] === 년월) {
+    if (String(data[i][0]).trim() === 년월) {
       sheet.deleteRow(i + 1);
     }
   }
@@ -6934,4 +6952,18 @@ function PDF텍스트추출(pdfFile) {
 
     return '';
   }
+}
+
+/**
+ * 벌칙 시스템 테스트 (12월 기준)
+ * 테스트 후 삭제해도 됩니다.
+ */
+function 벌칙테스트() {
+  // 12월 주간집계 재생성 (0-based month)
+  var 결과 = 월별주간집계(2025, 11);
+  주간집계저장(2025, 11, 결과);
+
+  // 벌칙 등록 + 알림
+  벌칙대상자_등록('2025-12');
+  벌칙대상자_슬랙알림('2025-12');
 }
