@@ -35,7 +35,8 @@ const CONFIG = {
     '부천개원의': '1DmaMnwtGsrwTln_jBc8bhW3-3j7ChqtG',
     '황인섭': '14VCJZ4hGB9dNIUzYncngeTe0w0YElvza',
     '바른몸': '1i3lxqexxksy-y_Uft8e1XlUJAmTPmrTw',
-    '엉엉 우는 어피치': '1fUkilgfnZHFHAx9HmmnOHyCcoFqfXvll'
+    '엉엉 우는 어피치': '1fUkilgfnZHFHAx9HmmnOHyCcoFqfXvll',
+    '호호': '1c7zr954bsQIizBB00CobA_OCWx4ltQNd'
   },
   
   // 시트 이름
