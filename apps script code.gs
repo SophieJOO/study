@@ -30,7 +30,12 @@ const CONFIG = {
     '오늘의너굴이': '1572mLeNrDLWLnXRronM-cfNpnUt-wBAM',
     'Dann': '1mMoVApl7GN3EUYi9oPi7Nfo_2hYDb9Dw',
     '보노보노': '1_Mqn79Y1Qp79DWBxcbP-SGVUGjJA3PGw',
-    'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG']
+    'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG'],
+    'RMSK전사': '1EUT7w_-7Cbu5216j2d6rkiq7DQzZ3p_s',
+    '부천개원의': '1DmaMnwtGsrwTln_jBc8bhW3-3j7ChqtG',
+    '황인섭': '14VCJZ4hGB9dNIUzYncngeTe0w0YElvza',
+    '바른몸': '1i3lxqexxksy-y_Uft8e1XlUJAmTPmrTw',
+    '엉엉 우는 어피치': '1fUkilgfnZHFHAx9HmmnOHyCcoFqfXvll'
   },
   
   // 시트 이름

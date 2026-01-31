@@ -20,7 +20,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 import requests
 from bs4 import BeautifulSoup
 
-from config import APPS_SCRIPT_URL, DEADLINE_HOUR
+from config import APPS_SCRIPT_URL
 
 logger = logging.getLogger(__name__)
 
@@ -29,16 +29,9 @@ MEMBERS_FILE = Path(__file__).parent / "members.json"
 
 
 def get_target_date() -> str:
-    """
-    대상 날짜 계산 (새벽 3시 기준)
-    - 현재 시간이 새벽 3시 이전이면 전날 날짜
-    - 새벽 3시 이후면 오늘 날짜
-    """
+    """대상 날짜 계산: 항상 전날 날짜 반환 (스케줄이 매일 05:00 실행)"""
     now = datetime.now()
-    if now.hour < DEADLINE_HOUR:
-        target = now - timedelta(days=1)
-    else:
-        target = now
+    target = now - timedelta(days=1)
     return target.strftime("%Y-%m-%d")
 
 

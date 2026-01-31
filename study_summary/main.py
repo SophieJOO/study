@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import List, Dict
 
 # 설정 모듈
-from config import LOG_DIR, OUTPUT_DIR, DEADLINE_HOUR
+from config import LOG_DIR, OUTPUT_DIR
 
 # NotebookLM CLI 경로
 NOTEBOOKLM_CLI = Path.home() / "AppData/Roaming/Python/Python314/Scripts/notebooklm.exe"
@@ -38,12 +38,9 @@ def setup_logging():
 
 
 def get_target_date() -> str:
-    """대상 날짜 계산 (새벽 3시 기준)"""
+    """대상 날짜 계산: 항상 전날 날짜 반환 (스케줄이 매일 05:00 실행)"""
     now = datetime.now()
-    if now.hour < DEADLINE_HOUR:
-        target = now - timedelta(days=1)
-    else:
-        target = now
+    target = now - timedelta(days=1)
     return target.strftime("%Y-%m-%d")
 
 
@@ -210,9 +207,12 @@ const [count, setCount] = useState(0);
             from drive_scanner import scan_all_members
             scan_results = scan_all_members(target_date)
         
-        # 제출한 회원 필터링
+        # 제출한 회원 필터링 (텍스트 콘텐츠가 있는 회원만 인포그래픽 생성)
         submitted = [r for r in scan_results if r.get("has_submission") and r.get("text_content")]
-        logger.info(f"  제출 완료: {len(submitted)}/{len(scan_results)}명")
+        image_only = [r for r in scan_results if r.get("has_submission") and not r.get("text_content")]
+        for r in image_only:
+            logger.info(f"  ⏭️ {r['name']}: 이미지 전용 제출 - 인포그래픽 스킵")
+        logger.info(f"  제출 완료: {len(submitted)}/{len(scan_results)}명 (이미지 전용 {len(image_only)}명 스킵)")
         
         if not submitted:
             logger.warning("❌ 인포그래픽을 생성할 회원이 없습니다.")
