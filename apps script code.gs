@@ -55,7 +55,7 @@ const CONFIG = {
   
   // 장기오프 설정
   LONG_OFF_STATUS: 'LONG_OFF',
-  LONG_OFF_AUTO_APPROVE: true,
+  LONG_OFF_AUTO_APPROVE: false,
   
   // 구글 폼 응답 시트 열 구조
   FORM_COLUMNS: {
@@ -3033,6 +3033,77 @@ function doGet(e) {
       return HtmlService.createHtmlOutput(html).setTitle('벌칙 완료');
     }
 
+    // 0-1. 장기오프 승인 처리 (Slack 버튼 → 브라우저)
+    if (params.action === 'longOffApprove') {
+      var name = params.name;
+      var startDate = params.startDate;
+      var endDate = params.endDate;
+      var reason = params.reason || '장기오프';
+      var formRow = params.row ? parseInt(params.row) : 0;
+      Logger.log('장기오프 승인: ' + name + ' (' + startDate + ' ~ ' + endDate + ')');
+
+      var success = false;
+      try {
+        // 1) 장기오프신청 시트에서 승인 처리
+        if (formRow > 0) {
+          var ss = SpreadsheetApp.getActiveSpreadsheet();
+          var longOffSheet = ss.getSheetByName(CONFIG.LONG_OFF_SHEET);
+          if (longOffSheet) {
+            longOffSheet.getRange(formRow, CONFIG.FORM_COLUMNS.APPROVED + 1).setValue('O');
+          }
+        }
+
+        // 2) 해당 기간 모든 날짜에 장기오프 출석 기록
+        var current = new Date(startDate);
+        var end = new Date(endDate);
+        current.setHours(0, 0, 0, 0);
+        end.setHours(0, 0, 0, 0);
+        var daysProcessed = 0;
+
+        while (current <= end) {
+          var dateStr = Utilities.formatDate(current, 'Asia/Seoul', 'yyyy-MM-dd');
+          출석기록추가(name, dateStr, [], CONFIG.LONG_OFF_STATUS, reason);
+          daysProcessed++;
+          current.setDate(current.getDate() + 1);
+        }
+
+        // 3) JSON 재생성
+        JSON파일생성();
+        success = daysProcessed > 0;
+        Logger.log('✅ ' + name + ' 장기오프 ' + daysProcessed + '일 승인 완료');
+
+        // 4) Slack 승인 완료 알림
+        var webhookUrl = getSlackWebhookUrl();
+        if (webhookUrl) {
+          UrlFetchApp.fetch(webhookUrl, {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({
+              text: '✅ *' + name + '* 장기오프 승인 완료 (' + startDate + ' ~ ' + endDate + ', ' + daysProcessed + '일)'
+            }),
+            muteHttpExceptions: true
+          });
+        }
+      } catch (err) {
+        Logger.log('❌ 장기오프 승인 오류: ' + err.message);
+      }
+
+      var resultMsg = success
+        ? '✅ ' + name + '님 장기오프가 승인되었습니다. (' + startDate + ' ~ ' + endDate + ')'
+        : '❌ 승인 처리에 실패했습니다.';
+      var html = '<html><head><meta charset="utf-8"><style>'
+        + 'body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}'
+        + '.card{background:white;padding:40px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,0.1);text-align:center;max-width:400px}'
+        + '.ok{color:#4CAF50;font-size:48px}.fail{color:#f44336;font-size:48px}'
+        + '</style></head><body><div class="card">'
+        + '<div class="' + (success ? 'ok' : 'fail') + '">' + (success ? '✅' : '❌') + '</div>'
+        + '<h2>' + resultMsg + '</h2>'
+        + '<p style="color:#888">' + startDate + ' ~ ' + endDate + '</p>'
+        + '<p style="color:#aaa;font-size:12px">이 탭을 닫아도 됩니다.</p>'
+        + '</div></body></html>';
+      return HtmlService.createHtmlOutput(html).setTitle('장기오프 승인');
+    }
+
     // 1. 다이제스트 HTML 서빙 (date 파라미터)
     if (params.date) {
       Logger.log('다이제스트 HTML 서빙 시작. 날짜:', params.date);
@@ -4166,65 +4237,105 @@ function 장기오프시스템_완전설치() {
 
 /**
  * 🆕 구글 폼 제출 시 자동 실행
- * 장기오프 신청 즉시 출석표 반영
+ * 장기오프 신청 → Slack 승인 요청 전송 (승인 전까지 출석 반영 안 함)
  */
 function onFormSubmit_장기오프처리(e) {
   try {
-    Logger.log('=== 폼 제출 감지: 장기오프 즉시 처리 ===');
-    
+    Logger.log('=== 폼 제출 감지: 장기오프 승인 요청 ===');
+
     const row = e.range.getRow();
     const sheet = e.range.getSheet();
-    
+
     // 장기오프신청 시트가 맞는지 확인
     if (sheet.getName() !== CONFIG.LONG_OFF_SHEET) {
       return;
     }
-    
+
     // 제출된 데이터 읽기
     const data = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];
-    
+
     const name = data[CONFIG.FORM_COLUMNS.NAME];
     const startDateValue = data[CONFIG.FORM_COLUMNS.START_DATE];
     const endDateValue = data[CONFIG.FORM_COLUMNS.END_DATE];
     const reason = data[CONFIG.FORM_COLUMNS.REASON];
-    
+
     Logger.log(`신청자: ${name}`);
     Logger.log(`기간: ${startDateValue} ~ ${endDateValue}`);
-    
+
     // 유효성 검사
     if (!name || !startDateValue || !endDateValue || !CONFIG.MEMBERS[name]) {
       Logger.log('❌ 유효하지 않은 신청');
       return;
     }
-    
+
     // 날짜 파싱
     let startDate = startDateValue instanceof Date ? startDateValue : new Date(startDateValue);
     let endDate = endDateValue instanceof Date ? endDateValue : new Date(endDateValue);
-    
+
     startDate.setHours(0, 0, 0, 0);
     endDate.setHours(0, 0, 0, 0);
-    
-    // 자동 승인
-    if (CONFIG.LONG_OFF_AUTO_APPROVE) {
-      sheet.getRange(row, CONFIG.FORM_COLUMNS.APPROVED + 1).setValue('O');
+
+    const startDateStr = Utilities.formatDate(startDate, 'Asia/Seoul', 'yyyy-MM-dd');
+    const endDateStr = Utilities.formatDate(endDate, 'Asia/Seoul', 'yyyy-MM-dd');
+
+    // 일수 계산
+    const days = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+
+    // Slack 승인 요청 전송
+    const webhookUrl = getSlackWebhookUrl();
+    if (webhookUrl) {
+      const approveUrl = CONFIG.WEB_APP_URL
+        + '?action=longOffApprove'
+        + '&name=' + encodeURIComponent(name)
+        + '&startDate=' + encodeURIComponent(startDateStr)
+        + '&endDate=' + encodeURIComponent(endDateStr)
+        + '&reason=' + encodeURIComponent(reason || '장기오프')
+        + '&row=' + row;
+
+      const blocks = [
+        {
+          type: 'header',
+          text: { type: 'plain_text', text: '🏝️ 장기오프 승인 요청', emoji: true }
+        },
+        {
+          type: 'section',
+          fields: [
+            { type: 'mrkdwn', text: '*신청자:*\n' + name },
+            { type: 'mrkdwn', text: '*기간:*\n' + startDateStr + ' ~ ' + endDateStr + ' (' + days + '일)' }
+          ]
+        },
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text: '*사유:*\n' + (reason || '(사유 없음)') }
+        },
+        { type: 'divider' },
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text: '승인하면 해당 기간이 장기오프로 출석에 반영됩니다.' },
+          accessory: {
+            type: 'button',
+            text: { type: 'plain_text', text: '✅ 승인', emoji: true },
+            style: 'primary',
+            url: approveUrl
+          }
+        }
+      ];
+
+      UrlFetchApp.fetch(webhookUrl, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({
+          text: '🏝️ ' + name + ' 장기오프 승인 요청 (' + startDateStr + ' ~ ' + endDateStr + ')',
+          blocks: blocks
+        }),
+        muteHttpExceptions: true
+      });
+
+      Logger.log(`✅ ${name} 장기오프 승인 요청 Slack 전송 완료`);
+    } else {
+      Logger.log('⚠️ Slack Webhook URL 미설정 - 승인 요청 전송 불가');
     }
-    
-    // 해당 기간 모든 날짜에 장기오프 기록
-    let daysProcessed = 0;
-    const currentDate = new Date(startDate);
-    
-    while (currentDate <= endDate) {
-      const dateStr = Utilities.formatDate(currentDate, 'Asia/Seoul', 'yyyy-MM-dd');
-      출석기록추가(name, dateStr, [], CONFIG.LONG_OFF_STATUS, reason || '장기오프');
-      daysProcessed++;
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-    
-    Logger.log(`✅ ${name}의 ${daysProcessed}일 장기오프 처리 완료`);
-    
-    // JSON 재생성
-    JSON파일생성();
-    
+
   } catch (error) {
     Logger.log('❌ 오류: ' + error.toString());
   }
