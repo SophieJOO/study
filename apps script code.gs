@@ -1607,6 +1607,29 @@ function 날짜추출(folderName) {
     // 2025/10/15 형식
     /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/,
   ];
+
+  // 2자리 연도 패턴 (26-02-02, 26.02.02, 26/02/02, 260202)
+  const shortYearPatterns = [
+    /^(\d{2})-(\d{1,2})-(\d{1,2})$/,
+    /^(\d{2})\.(\d{1,2})\.(\d{1,2})$/,
+    /^(\d{2})\/(\d{1,2})\/(\d{1,2})$/,
+    /^(\d{2})(\d{2})(\d{2})$/,
+  ];
+
+  for (const pattern of shortYearPatterns) {
+    const match = folderName.match(pattern);
+    if (match) {
+      const shortYear = parseInt(match[1]);
+      const year = shortYear >= 0 && shortYear <= 50 ? 2000 + shortYear : 1900 + shortYear;
+      const month = parseInt(match[2]) - 1; // 0-based
+      const day = parseInt(match[3]);
+
+      if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return { dateStr, year, month, day };
+      }
+    }
+  }
   
   // 년도 포함 형식 체크
   for (const pattern of patterns) {
