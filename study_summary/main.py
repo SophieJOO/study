@@ -215,7 +215,7 @@ const [count, setCount] = useState(0);
             if not files:
                 return False
             return all(
-                Path(f["name"].split("(")[0]).suffix.lower() in IMAGE_EXTS
+                Path(f.split("(")[0].strip()).suffix.lower() in IMAGE_EXTS
                 for f in files
             )
 
