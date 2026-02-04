@@ -207,9 +207,20 @@ const [count, setCount] = useState(0);
             from drive_scanner import scan_all_members
             scan_results = scan_all_members(target_date)
         
-        # 제출한 회원 필터링 (텍스트 콘텐츠가 있는 회원만 인포그래픽 생성)
-        submitted = [r for r in scan_results if r.get("has_submission") and r.get("text_content")]
-        image_only = [r for r in scan_results if r.get("has_submission") and not r.get("text_content")]
+        # 제출한 회원 필터링 - 이미지만 제출한 회원은 인포그래픽 생성 스킵
+        IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic'}
+
+        def is_image_only(result: dict) -> bool:
+            files = result.get("files", [])
+            if not files:
+                return False
+            return all(
+                Path(f["name"].split("(")[0]).suffix.lower() in IMAGE_EXTS
+                for f in files
+            )
+
+        submitted = [r for r in scan_results if r.get("has_submission") and not is_image_only(r)]
+        image_only = [r for r in scan_results if r.get("has_submission") and is_image_only(r)]
         for r in image_only:
             logger.info(f"  ⏭️ {r['name']}: 이미지 전용 제출 - 인포그래픽 스킵")
         logger.info(f"  제출 완료: {len(submitted)}/{len(scan_results)}명 (이미지 전용 {len(image_only)}명 스킵)")

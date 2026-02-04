@@ -108,7 +108,14 @@ async def _generate_infographic_async(
                 language="ko",
                 orientation=InfographicOrientation.PORTRAIT,
                 detail_level=InfographicDetail.DETAILED,
-                instructions="한글 텍스트를 정확하게 표기해주세요. 오타 없이 원본 내용을 그대로 유지하고, 글자가 깨지지 않도록 해주세요.",
+                instructions=(
+                    "이 인포그래픽은 한국어 사용자를 위한 것입니다. 원본 내용을 최대한 자세히 포함하되, 다음 규칙을 반드시 지켜주세요:\n"
+                    "1. 모든 한글 텍스트는 충분히 큰 폰트 크기로 렌더링하여 글자가 뭉개지거나 깨지지 않도록 하세요.\n"
+                    "2. 한글 글자가 잘리거나 겹치지 않도록 텍스트 영역에 충분한 공간과 여백을 확보하세요.\n"
+                    "3. 영어 전문용어는 한글 옆에 영어를 병기하세요 (예: 신장암(Renal Cell Carcinoma)).\n"
+                    "4. 아이콘, 다이어그램, 화살표 등 시각적 요소를 적극 활용하여 가독성을 높이세요.\n"
+                    "5. 한글 텍스트가 들어가는 모든 박스와 영역은 글자 수에 맞게 충분히 크게 만드세요."
+                ),
             )
             logger.info(f"  인포그래픽 생성 요청 완료, 대기 중...")
 

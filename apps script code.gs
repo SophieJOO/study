@@ -32,7 +32,7 @@ const CONFIG = {
     '보노보노': '1_Mqn79Y1Qp79DWBxcbP-SGVUGjJA3PGw',
     'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG'],
     'RMSK전사': '1EUT7w_-7Cbu5216j2d6rkiq7DQzZ3p_s',
-    '부천개원의': '1DmaMnwtGsrwTln_jBc8bhW3-3j7ChqtG',
+    '부천개원의': '1qX9Ek62dIVIJPMZv23QjubSgUo-IRBdT',
     '황인섭': '14VCJZ4hGB9dNIUzYncngeTe0w0YElvza',
     '바른몸': '1i3lxqexxksy-y_Uft8e1XlUJAmTPmrTw',
     '엉엉 우는 어피치': '1fUkilgfnZHFHAx9HmmnOHyCcoFqfXvll',
@@ -1251,7 +1251,8 @@ function 출석기록재검사(days = 7) {
               `${year}-${month}-${day}`,
               `${year}${month}${day}`,
               `${year}.${month}.${day}`,
-              `${year}년 ${month}월 ${day}일`
+              `${year}년 ${month}월 ${day}일`,
+              `${year}-${parseInt(month)}-${parseInt(day)}`
             );
           }
 
@@ -5600,7 +5601,8 @@ function 월간원본수집(yearMonth) {
           `${y}-${m}-${d}`,      // 2025-11-24
           `${y}${m}${d}`,        // 20251124 (what 조원)
           `${y}.${m}.${d}`,      // 2025.11.24
-          `${y}년 ${m}월 ${d}일` // 2025년 11월 24일
+          `${y}년 ${m}월 ${d}일`, // 2025년 11월 24일
+          `${y}-${parseInt(m)}-${parseInt(d)}`  // 2025-1-5 (zero-pad 없는 형식)
         );
       }
 
@@ -6031,11 +6033,17 @@ function 파일내용수집(memberName, folderId, dateStr) {
       const day = parts[2];
 
       // 다양한 날짜 형식 생성
+      const shortYear = year.slice(-2);     // 2026 → 26
       dateFormats.push(
         `${year}-${month}-${day}`,           // 2025-11-24
         `${year}${month}${day}`,             // 20251124 (what 조원)
         `${year}.${month}.${day}`,           // 2025.11.24
-        `${year}년 ${month}월 ${day}일`      // 2025년 11월 24일
+        `${year}년 ${month}월 ${day}일`,     // 2025년 11월 24일
+        `${year}-${parseInt(month)}-${parseInt(day)}`,  // 2025-1-5 (zero-pad 없는 형식)
+        `${shortYear}-${month}-${day}`,      // 25-11-24 (부천개원의)
+        `${shortYear}-${parseInt(month)}-${parseInt(day)}`,  // 25-1-5
+        `${shortYear}${month}${day}`,        // 251124
+        `${shortYear}.${month}.${day}`,      // 25.11.24
       );
     }
 
