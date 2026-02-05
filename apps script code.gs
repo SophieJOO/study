@@ -6022,6 +6022,34 @@ function 월간다이제스트저장(조원분석결과, yearMonth) {
 }
 
 /**
+ * 텍스트 파일 인코딩 자동 감지 읽기
+ * UTF-8 → EUC-KR 순서로 시도하여 유효한 내용을 반환
+ * @param {GoogleAppsScript.Drive.File} file - Drive 파일 객체
+ * @returns {string} 파일 내용 (읽기 실패 시 빈 문자열)
+ */
+function 텍스트파일읽기(file) {
+  const blob = file.getBlob();
+  const charsets = ['UTF-8', 'EUC-KR'];
+
+  for (const charset of charsets) {
+    try {
+      const content = blob.getDataAsString(charset);
+      if (content && content.trim().length > 0 && !content.includes('\uFFFD')) {
+        if (charset !== 'UTF-8') {
+          Logger.log(`  ℹ️ ${charset} 인코딩으로 읽음: ${file.getName()}`);
+        }
+        return content;
+      }
+    } catch (e) {
+      // 다음 인코딩 시도
+    }
+  }
+
+  Logger.log(`  ⚠️ 텍스트 파일 인코딩 감지 실패: ${file.getName()}`);
+  return '';
+}
+
+/**
  * 파일 내용 수집
  * @param {string} memberName - 조원 이름
  * @param {string} folderId - 조원 폴더 ID
@@ -6124,7 +6152,7 @@ function 파일내용수집(memberName, folderId, dateStr) {
       // 마크다운 파일
       if (fileName.toLowerCase().endsWith('.md')) {
         try {
-          const mdContent = file.getBlob().getDataAsString('UTF-8');
+          const mdContent = 텍스트파일읽기(file);
 
           // 마크다운 클린업 적용
           const cleanedContent = 마크다운클린업(mdContent);
@@ -6150,8 +6178,14 @@ function 파일내용수집(memberName, folderId, dateStr) {
       // 텍스트 파일
       else if (mimeType === MimeType.PLAIN_TEXT || fileName.toLowerCase().endsWith('.txt')) {
         try {
-          const txtContent = file.getBlob().getDataAsString('UTF-8');
-          전체내용 += `[텍스트 파일: ${fileName}]\n\n${txtContent}\n\n` + '='.repeat(50) + '\n\n';
+          const txtContent = 텍스트파일읽기(file);
+
+          if (txtContent && txtContent.trim().length > 0) {
+            전체내용 += `[텍스트 파일: ${fileName}]\n\n${txtContent}\n\n` + '='.repeat(50) + '\n\n';
+          } else {
+            전체내용 += `[텍스트 파일: ${fileName}] (내용 추출 실패)\n\n` + '='.repeat(50) + '\n\n';
+            Logger.log(`  ⚠️ 텍스트 파일 내용 비어있음: ${fileName}`);
+          }
 
           파일목록.push({
             이름: fileName,
