@@ -234,10 +234,16 @@ const [count, setCount] = useState(0);
         
         from infographic_generator import generate_educational_infographic
         
+        MIN_CONTENT_LENGTH = 50
+
         generated_images = []
         for member in submitted:
+            if len(member.get("text_content", "").strip()) < MIN_CONTENT_LENGTH:
+                logger.warning(f"  ⏭️ {member['name']}: 내용 부족 ({len(member.get('text_content', '').strip())}자 < {MIN_CONTENT_LENGTH}자) - 스킵")
+                continue
+
             logger.info(f"\n  📝 {member['name']} 인포그래픽 생성 중...")
-            
+
             try:
                 image_path = generate_educational_infographic(
                     member_name=member["name"],
