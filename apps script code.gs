@@ -3746,8 +3746,27 @@ function 월별결산생성() {
     Logger.log('❌ 제출기록 시트가 없습니다.');
     return;
   }
-  
+
   const data = attendanceSheet.getDataRange().getValues();
+
+  // 🆕 주간집계에서 벌칙 판정용 주간결석 합계 미리 계산
+  const weeklySheet = ss.getSheetByName('주간집계');
+  const memberWeeklyAbsences = {};
+  if (weeklySheet && weeklySheet.getLastRow() > 1) {
+    const weeklyData = weeklySheet.getRange(2, 1, weeklySheet.getLastRow() - 1, 9).getDisplayValues();
+    for (const row of weeklyData) {
+      const rowYM = String(row[0]).trim();
+      if (rowYM !== yearMonth) continue;
+      const name = String(row[1]).trim();
+      const absences = Number(row[6]) || 0;
+      const isFullLongOff = String(row[8]).trim() === '전체장기오프';
+      if (!memberWeeklyAbsences[name]) memberWeeklyAbsences[name] = 0;
+      if (!isFullLongOff) memberWeeklyAbsences[name] += absences;
+    }
+    Logger.log(`주간집계 기준 결석: ${JSON.stringify(memberWeeklyAbsences)}`);
+  } else {
+    Logger.log('⚠️ 주간집계 데이터 없음 - 일일 결석 기준으로 상태 판정');
+  }
   
   // 🔧 중복 제거: 각 조원별로 날짜별 최신 상태만 저장
   const memberDateRecords = {};
@@ -3808,26 +3827,27 @@ function 월별결산생성() {
     
     // 🔧 정확한 결석 계산: 전체 일수 - (출석 + 오프 + 장기오프)
     const 결석 = daysInMonth - (출석 + 오프 + 장기오프);
-    
+
     // 출석률 계산
     const 출석률 = daysInMonth > 0 ? ((출석 / daysInMonth) * 100).toFixed(1) : 0;
-    
-    // 상태 판정
+
+    // 상태 판정 (주간집계 기준, 없으면 일일 기준)
+    const weeklyAbs = memberWeeklyAbsences[memberName] ?? 결석;
     let 상태 = '정상';
-    if (결석 >= 4) {
+    if (weeklyAbs >= 4) {
       상태 = '🚨 벌칙';
-    } else if (결석 === 3) {
+    } else if (weeklyAbs === 3) {
       상태 = '⚠️ 경고';
     } else {
       상태 = '✅ 정상';
     }
-    
-    let 비고 = `출석 ${출석}일 + 오프 ${오프}일 + 장기오프 ${장기오프}일 + 결석 ${결석}일 = 총 ${daysInMonth}일`;
+
+    let 비고 = `출석 ${출석}일 + 오프 ${오프}일 + 장기오프 ${장기오프}일 + 결석 ${결석}일 = 총 ${daysInMonth}일 (주간결석 ${weeklyAbs}회)`;
     if (오프초과결석목록.length > 0) {
       비고 += ` | 🚨 오프 초과 결석: ${오프초과결석목록.join(', ')}`;
     }
-    
-    Logger.log(`${memberName}: 출석 ${출석}, 오프 ${오프}, 장기오프 ${장기오프}, 결석 ${결석} → ${상태}`);
+
+    Logger.log(`${memberName}: 출석 ${출석}, 오프 ${오프}, 장기오프 ${장기오프}, 결석 ${결석}, 주간결석 ${weeklyAbs} → ${상태}`);
     
     summaryData.push([
       yearMonth,
@@ -3953,31 +3973,50 @@ function 특정월_결산생성(year, month) {
     Logger.log('❌ 제출기록 시트가 없습니다.');
     return;
   }
-  
+
   const data = attendanceSheet.getDataRange().getValues();
-  
+
+  // 🆕 주간집계에서 벌칙 판정용 주간결석 합계 미리 계산
+  const weeklySheet = ss.getSheetByName('주간집계');
+  const memberWeeklyAbsences = {};
+  if (weeklySheet && weeklySheet.getLastRow() > 1) {
+    const weeklyData = weeklySheet.getRange(2, 1, weeklySheet.getLastRow() - 1, 9).getDisplayValues();
+    for (const row of weeklyData) {
+      const rowYM = String(row[0]).trim();
+      if (rowYM !== yearMonth) continue;
+      const name = String(row[1]).trim();
+      const absences = Number(row[6]) || 0;
+      const isFullLongOff = String(row[8]).trim() === '전체장기오프';
+      if (!memberWeeklyAbsences[name]) memberWeeklyAbsences[name] = 0;
+      if (!isFullLongOff) memberWeeklyAbsences[name] += absences;
+    }
+    Logger.log(`주간집계 기준 결석: ${JSON.stringify(memberWeeklyAbsences)}`);
+  } else {
+    Logger.log('⚠️ 주간집계 데이터 없음 - 일일 결석 기준으로 상태 판정');
+  }
+
   // 🔧 중복 제거: 각 조원별로 날짜별 최신 상태만 저장
   const memberDateRecords = {};
-  
+
   // 조원별 Map 초기화
   for (const memberName of Object.keys(CONFIG.MEMBERS)) {
     memberDateRecords[memberName] = new Map(); // key: 날짜, value: {status, timestamp, reason}
   }
-  
+
   // 데이터 수집 (같은 날짜는 최신 타임스탬프만 유지)
   for (let i = 1; i < data.length; i++) {
     const [timestamp, name, dateStr, fileCount, links, folderLink, status, weekNum, reason] = data[i];
-    
+
     if (!memberDateRecords[name]) continue;
-    
-    const dateStrFormatted = typeof dateStr === 'string' 
-      ? dateStr 
+
+    const dateStrFormatted = typeof dateStr === 'string'
+      ? dateStr
       : Utilities.formatDate(new Date(dateStr), 'Asia/Seoul', 'yyyy-MM-dd');
-    
+
     // 해당 월 데이터만 처리
     if (dateStrFormatted && dateStrFormatted.startsWith(yearMonth)) {
       const existing = memberDateRecords[name].get(dateStrFormatted);
-      
+
       // 기존 기록이 없거나, 더 최신 기록이면 업데이트
       if (!existing || timestamp > existing.timestamp) {
         memberDateRecords[name].set(dateStrFormatted, {
@@ -4015,26 +4054,27 @@ function 특정월_결산생성(year, month) {
     
     // 🔧 정확한 결석 계산: 전체 일수 - (출석 + 오프 + 장기오프)
     const 결석 = daysInMonth - (출석 + 오프 + 장기오프);
-    
+
     // 출석률 계산
     const 출석률 = daysInMonth > 0 ? ((출석 / daysInMonth) * 100).toFixed(1) : 0;
-    
-    // 상태 판정
+
+    // 상태 판정 (주간집계 기준, 없으면 일일 기준)
+    const weeklyAbs = memberWeeklyAbsences[memberName] ?? 결석;
     let 상태 = '정상';
-    if (결석 >= 4) {
+    if (weeklyAbs >= 4) {
       상태 = '🚨 벌칙';
-    } else if (결석 === 3) {
+    } else if (weeklyAbs === 3) {
       상태 = '⚠️ 경고';
     } else {
       상태 = '✅ 정상';
     }
-    
-    let 비고 = `출석 ${출석}일 + 오프 ${오프}일 + 장기오프 ${장기오프}일 + 결석 ${결석}일 = 총 ${daysInMonth}일`;
+
+    let 비고 = `출석 ${출석}일 + 오프 ${오프}일 + 장기오프 ${장기오프}일 + 결석 ${결석}일 = 총 ${daysInMonth}일 (주간결석 ${weeklyAbs}회)`;
     if (오프초과결석목록.length > 0) {
       비고 += ` | 🚨 오프 초과 결석: ${오프초과결석목록.join(', ')}`;
     }
-    
-    Logger.log(`${memberName}: 출석 ${출석}, 오프 ${오프}, 장기오프 ${장기오프}, 결석 ${결석} → ${상태}`);
+
+    Logger.log(`${memberName}: 출석 ${출석}, 오프 ${오프}, 장기오프 ${장기오프}, 결석 ${결석}, 주간결석 ${weeklyAbs} → ${상태}`);
     
     summaryData.push([
       yearMonth,
