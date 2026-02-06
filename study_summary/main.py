@@ -214,8 +214,14 @@ const [count, setCount] = useState(0);
             files = result.get("files", [])
             if not files:
                 return False
+
+            def get_filename(f):
+                if isinstance(f, dict):
+                    return f.get("이름", f.get("name", ""))
+                return str(f)
+
             return all(
-                Path(f.split("(")[0].strip()).suffix.lower() in IMAGE_EXTS
+                Path(get_filename(f).split("(")[0].strip()).suffix.lower() in IMAGE_EXTS
                 for f in files
             )
 
