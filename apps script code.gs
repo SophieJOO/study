@@ -27,7 +27,7 @@ const CONFIG = {
     'what': '1UtswVFSZtLlbQUZx35mBc6QD6q9zJPkg',
     '머리 빗는 네오': '1XQIgvcZ4uD__JxddsxKTbk0PzNB6Js2k',
     '녹동': '1-aEr_ER-o8SxcQzLCMeAqEy-cghtUl-R',
-    '오늘의너굴이': '1572mLeNrDLWLnXRronM-cfNpnUt-wBAM',
+    '오늘의너굴이': '1O4JHt954kCa1nPicUitQCbnyDIO2r1Zt',
     'Dann': '1mMoVApl7GN3EUYi9oPi7Nfo_2hYDb9Dw',
     '보노보노': '1_Mqn79Y1Qp79DWBxcbP-SGVUGjJA3PGw',
     'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG', '14UsgZTtXpuiBv2jYItigwQGiasIWof5s'],
