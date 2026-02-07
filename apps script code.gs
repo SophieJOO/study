@@ -33,7 +33,6 @@ const CONFIG = {
     'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG', '14UsgZTtXpuiBv2jYItigwQGiasIWof5s'],
     'RMSK전사': '1EUT7w_-7Cbu5216j2d6rkiq7DQzZ3p_s',
     '부천개원의': '1qX9Ek62dIVIJPMZv23QjubSgUo-IRBdT',
-    '황인섭': '14VCJZ4hGB9dNIUzYncngeTe0w0YElvza',
     '바른몸': '1i3lxqexxksy-y_Uft8e1XlUJAmTPmrTw',
     '엉엉 우는 어피치': '1fUkilgfnZHFHAx9HmmnOHyCcoFqfXvll',
     '호호': '1c7zr954bsQIizBB00CobA_OCWx4ltQNd'
