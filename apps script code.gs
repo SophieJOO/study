@@ -478,6 +478,105 @@ function 월간다이제스트_슬랙PDF전송(yearMonth) {
   }
 }
 
+// ==================== 🗑️ 멤버 삭제 ====================
+
+/**
+ * 특정 멤버의 모든 데이터를 삭제하고 JSON 재생성
+ * @param {string} memberName - 삭제할 멤버 이름
+ */
+function 멤버데이터삭제(memberName) {
+  if (!memberName) {
+    Logger.log('❌ 멤버 이름을 입력해주세요.');
+    return;
+  }
+
+  Logger.log(`\n=== ${memberName} 멤버 데이터 삭제 시작 ===\n`);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let totalDeleted = 0;
+
+  // 1. 주간집계 시트에서 삭제
+  const weeklySheet = ss.getSheetByName('주간집계');
+  if (weeklySheet && weeklySheet.getLastRow() > 1) {
+    const deleted = 시트에서멤버삭제(weeklySheet, memberName, 1); // B열(이름)
+    totalDeleted += deleted;
+    Logger.log(`✅ 주간집계: ${deleted}행 삭제`);
+  }
+
+  // 2. 월별결산 시트에서 삭제
+  const summarySheet = ss.getSheetByName(CONFIG.MONTHLY_SUMMARY_SHEET);
+  if (summarySheet && summarySheet.getLastRow() > 1) {
+    const deleted = 시트에서멤버삭제(summarySheet, memberName, 1); // B열(조원명)
+    totalDeleted += deleted;
+    Logger.log(`✅ 월별결산: ${deleted}행 삭제`);
+  }
+
+  // 3. 제출기록 시트에서 삭제
+  const recordSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  if (recordSheet && recordSheet.getLastRow() > 1) {
+    const deleted = 시트에서멤버삭제(recordSheet, memberName, 1); // B열(이름)
+    totalDeleted += deleted;
+    Logger.log(`✅ 제출기록: ${deleted}행 삭제`);
+  }
+
+  // 4. 벌칙관리 시트에서 삭제
+  const penaltySheet = ss.getSheetByName(CONFIG.PENALTY_SHEET);
+  if (penaltySheet && penaltySheet.getLastRow() > 1) {
+    const deleted = 시트에서멤버삭제(penaltySheet, memberName, 1); // B열(조원명)
+    totalDeleted += deleted;
+    Logger.log(`✅ 벌칙관리: ${deleted}행 삭제`);
+  }
+
+  // 5. JSON 파일에서 멤버 삭제 및 재생성
+  Logger.log(`\n📁 JSON 파일 재생성 중...`);
+  try {
+    JSON파일생성();
+    Logger.log(`✅ 출석 JSON 재생성 완료`);
+  } catch (e) {
+    Logger.log(`⚠️ 출석 JSON 재생성 실패: ${e.message}`);
+  }
+
+  try {
+    이번주주간집계();
+    Logger.log(`✅ 주간집계 JSON 재생성 완료`);
+  } catch (e) {
+    Logger.log(`⚠️ 주간집계 JSON 재생성 실패: ${e.message}`);
+  }
+
+  Logger.log(`\n=== 완료: 총 ${totalDeleted}행 삭제됨 ===`);
+  Logger.log(`💡 웹페이지에서 Ctrl+Shift+R로 새로고침하세요.`);
+}
+
+/**
+ * 시트에서 특정 멤버의 행 삭제
+ * @param {Sheet} sheet - 대상 시트
+ * @param {string} memberName - 멤버 이름
+ * @param {number} nameColIndex - 이름이 있는 열 인덱스 (0-based)
+ * @returns {number} 삭제된 행 수
+ */
+function 시트에서멤버삭제(sheet, memberName, nameColIndex) {
+  const data = sheet.getDataRange().getValues();
+  let deletedCount = 0;
+
+  // 아래에서 위로 삭제 (행 번호 변경 방지)
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][nameColIndex]).trim() === memberName) {
+      sheet.deleteRow(i + 1);
+      deletedCount++;
+    }
+  }
+
+  return deletedCount;
+}
+
+/**
+ * 황인섭, 호호 멤버 데이터 일괄 삭제 (편의 함수)
+ */
+function 탈퇴멤버일괄삭제() {
+  멤버데이터삭제('황인섭');
+  멤버데이터삭제('호호');
+}
+
 // ==================== 🚨 벌칙 관리 ====================
 
 /**
