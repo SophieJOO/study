@@ -575,6 +575,34 @@ function 시트에서멤버삭제(sheet, memberName, nameColIndex) {
 function 탈퇴멤버일괄삭제() {
   멤버데이터삭제('황인섭');
   멤버데이터삭제('호호');
+  멤버데이터삭제('스카피');
+}
+
+/**
+ * 주간집계 시트의 모든 멤버 이름 출력 (디버그용)
+ */
+function 주간집계멤버목록() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('주간집계');
+
+  if (!sheet || sheet.getLastRow() < 2) {
+    Logger.log('주간집계 시트가 비어있습니다.');
+    return;
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const members = new Set();
+
+  for (let i = 1; i < data.length; i++) {
+    const name = String(data[i][1]).trim(); // B열 (조원명)
+    if (name) members.add(name);
+  }
+
+  Logger.log('=== 주간집계 시트 멤버 목록 ===');
+  for (const name of members) {
+    Logger.log(`  - "${name}" (길이: ${name.length})`);
+  }
+  Logger.log(`총 ${members.size}명`);
 }
 
 // ==================== 🚨 벌칙 관리 ====================
@@ -5271,6 +5299,16 @@ function 이번주JSON업데이트(year, month, 현재주차, 이번주집계, �
       memberData.총결석 = memberData.주차별
         .filter(w => !w.전체장기오프)
         .reduce((sum, w) => sum + (w.결석 || 0), 0);
+    }
+
+    // 🆕 탈퇴 멤버 제거 (CONFIG.MEMBERS에 없는 멤버 삭제)
+    const activeMembers = Object.keys(CONFIG.MEMBERS);
+    const jsonMembers = Object.keys(jsonData.조원별집계);
+    for (const memberName of jsonMembers) {
+      if (!activeMembers.includes(memberName)) {
+        delete jsonData.조원별집계[memberName];
+        Logger.log(`🗑️ JSON에서 탈퇴 멤버 제거: ${memberName}`);
+      }
     }
 
     // 업데이트 시간 기록
