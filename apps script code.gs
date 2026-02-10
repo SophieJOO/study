@@ -605,6 +605,111 @@ function 주간집계멤버목록() {
   Logger.log(`총 ${members.size}명`);
 }
 
+/**
+ * 특정 멤버의 폴더 내용 확인 (디버그용)
+ * @param {string} memberName - 멤버 이름 (기본: 보노보노)
+ * @param {string} targetDate - 확인할 날짜 (기본: 어제)
+ */
+function 멤버폴더확인(memberName, targetDate) {
+  memberName = memberName || '보노보노';
+
+  if (!targetDate) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    targetDate = Utilities.formatDate(yesterday, 'Asia/Seoul', 'yyyy-MM-dd');
+  }
+
+  const folderIdOrArray = CONFIG.MEMBERS[memberName];
+  if (!folderIdOrArray) {
+    Logger.log(`❌ ${memberName} 멤버를 찾을 수 없습니다.`);
+    return;
+  }
+
+  const folderIds = Array.isArray(folderIdOrArray) ? folderIdOrArray : [folderIdOrArray];
+
+  Logger.log(`=== ${memberName} 폴더 확인 (${targetDate}) ===`);
+  Logger.log(`폴더 ID: ${folderIds.join(', ')}`);
+  Logger.log('');
+
+  for (const folderId of folderIds) {
+    try {
+      const mainFolder = DriveApp.getFolderById(folderId);
+      Logger.log(`📁 메인 폴더: ${mainFolder.getName()}`);
+
+      const subfolders = mainFolder.getFolders();
+      let found = false;
+
+      while (subfolders.hasNext()) {
+        const folder = subfolders.next();
+        const folderName = folder.getName().trim();
+        const dateInfo = 날짜추출(folderName);
+
+        if (dateInfo && dateInfo.dateStr === targetDate) {
+          found = true;
+          Logger.log(`\n✅ 날짜 폴더 발견: "${folderName}"`);
+          Logger.log(`   추출된 날짜: ${dateInfo.dateStr}`);
+          Logger.log(`   폴더 생성시간: ${folder.getDateCreated().toLocaleString('ko-KR')}`);
+          Logger.log(`   마지막 수정: ${folder.getLastUpdated().toLocaleString('ko-KR')}`);
+
+          const files = folder.getFiles();
+          let fileCount = 0;
+          Logger.log(`   파일 목록:`);
+          while (files.hasNext()) {
+            const file = files.next();
+            fileCount++;
+            Logger.log(`     - ${file.getName()} (${file.getDateCreated().toLocaleString('ko-KR')})`);
+          }
+          Logger.log(`   총 파일: ${fileCount}개`);
+
+          // 마감 체크
+          const isClosed = 날짜마감확인(targetDate);
+          Logger.log(`   마감 여부: ${isClosed ? '마감됨' : '진행중'}`);
+        }
+      }
+
+      if (!found) {
+        Logger.log(`\n❌ ${targetDate} 날짜의 폴더를 찾을 수 없습니다.`);
+        Logger.log(`\n최근 폴더 목록 (최대 10개):`);
+        const allFolders = mainFolder.getFolders();
+        let count = 0;
+        while (allFolders.hasNext() && count < 10) {
+          const f = allFolders.next();
+          Logger.log(`  - ${f.getName()}`);
+          count++;
+        }
+      }
+
+    } catch (e) {
+      Logger.log(`❌ 폴더 접근 오류: ${e.message}`);
+    }
+  }
+
+  // 제출기록 시트에서 확인
+  Logger.log(`\n=== 제출기록 시트 확인 ===`);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  if (sheet && sheet.getLastRow() > 1) {
+    const data = sheet.getDataRange().getValues();
+    let foundInSheet = false;
+    for (let i = 1; i < data.length; i++) {
+      const name = String(data[i][1]).trim();
+      const dateStr = data[i][2];
+      const formattedDate = typeof dateStr === 'string' ? dateStr : Utilities.formatDate(new Date(dateStr), 'Asia/Seoul', 'yyyy-MM-dd');
+      if (name === memberName && formattedDate === targetDate) {
+        foundInSheet = true;
+        Logger.log(`✅ 제출기록 발견:`);
+        Logger.log(`   날짜: ${formattedDate}`);
+        Logger.log(`   상태: ${data[i][6]}`);
+        Logger.log(`   파일수: ${data[i][3]}`);
+        break;
+      }
+    }
+    if (!foundInSheet) {
+      Logger.log(`❌ ${memberName}의 ${targetDate} 제출기록 없음`);
+    }
+  }
+}
+
 // ==================== 🚨 벌칙 관리 ====================
 
 /**
