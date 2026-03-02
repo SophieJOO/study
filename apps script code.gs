@@ -713,6 +713,172 @@ function 멤버폴더확인(memberName, targetDate) {
 // ==================== 🚨 벌칙 관리 ====================
 
 /**
+ * 전월 벌칙 대상자 등록 + Slack 알림 (에디터에서 바로 실행 가능)
+ */
+function 수동_벌칙알림() {
+  var now = new Date();
+  var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  var year = lastMonth.getFullYear();
+  var month = lastMonth.getMonth();  // 0-based
+  var ym = year + '-' + String(month + 1).padStart(2, '0');
+  Logger.log('수동 벌칙 알림 실행: ' + ym);
+
+  // 월별주간집계 함수로 직접 계산 (시트 중복/형식 문제 우회)
+  var 집계결과 = 월별주간집계(year, month);
+  var memberAbsences = {};
+  for (var name in 집계결과) {
+    memberAbsences[name] = 집계결과[name].총결석;
+  }
+  Logger.log('주간집계 결석: ' + JSON.stringify(memberAbsences));
+
+  // 벌칙 대상자 등록 (4회 이상)
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var penaltySheet = ss.getSheetByName('벌칙관리');
+  if (!penaltySheet) { 벌칙관리시트_생성(); penaltySheet = ss.getSheetByName('벌칙관리'); }
+  var existingData = penaltySheet.getLastRow() > 1 ? penaltySheet.getRange(2, 1, penaltySheet.getLastRow() - 1, 2).getDisplayValues() : [];
+  var existingKeys = {};
+  for (var j = 0; j < existingData.length; j++) { existingKeys[existingData[j][0] + '|' + existingData[j][1]] = true; }
+
+  var newRows = [];
+  var penaltyNames = [];
+  for (var name in memberAbsences) {
+    if (memberAbsences[name] >= 4) {
+      penaltyNames.push(name + '(' + memberAbsences[name] + '회)');
+      if (!existingKeys[ym + '|' + name]) {
+        newRows.push([ym, name, memberAbsences[name], '🚨 벌칙', '미수행', '']);
+      }
+    }
+  }
+
+  Logger.log('벌칙 대상자 ' + penaltyNames.length + '명: ' + penaltyNames.join(', '));
+
+  if (newRows.length > 0) {
+    penaltySheet.getRange(penaltySheet.getLastRow() + 1, 1, newRows.length, 6).setValues(newRows);
+    for (var k = 0; k < newRows.length; k++) {
+      penaltySheet.getRange(penaltySheet.getLastRow() - newRows.length + 1 + k, 5).setBackground('#ffcdd2');
+    }
+    Logger.log('🚨 ' + ym + ' 벌칙 대상자 ' + newRows.length + '명 등록');
+  } else {
+    Logger.log('신규 등록 대상 없음 (이미 등록됨)');
+  }
+
+  벌칙대상자_슬랙알림(ym);
+}
+
+/**
+ * 특정 월 벌칙 데이터 초기화 (잘못 등록된 데이터 정리용)
+ */
+function 벌칙데이터_초기화() {
+  var ym = '2026-02';
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('벌칙관리');
+  if (!sheet || sheet.getLastRow() < 2) { Logger.log('벌칙관리 시트 비어있음'); return; }
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues();
+  var deleted = 0;
+  for (var i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][0]).trim() === ym) {
+      sheet.deleteRow(i + 2);
+      deleted++;
+    }
+  }
+  Logger.log(ym + ' 벌칙 데이터 ' + deleted + '행 삭제 완료');
+}
+
+/**
+ * 월별결산 시트 디버그 (데이터 확인용)
+ */
+function 주간집계_디버그() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('주간집계');
+  if (!sheet) { Logger.log('주간집계 시트 없음'); return; }
+  var lastRow = sheet.getLastRow();
+  Logger.log('주간집계 총 행수: ' + lastRow);
+  if (lastRow < 2) { Logger.log('데이터 없음'); return; }
+  var allYM = sheet.getRange(2, 1, lastRow - 1, 1).getDisplayValues();
+  var ymSet = {};
+  for (var i = 0; i < allYM.length; i++) {
+    var v = String(allYM[i][0]).trim();
+    if (!ymSet[v]) ymSet[v] = 0;
+    ymSet[v]++;
+  }
+  Logger.log('연월별 행 수: ' + JSON.stringify(ymSet));
+  // 첫 2행 샘플
+  var sample = sheet.getRange(2, 1, Math.min(2, lastRow - 1), 9).getDisplayValues();
+  for (var i = 0; i < sample.length; i++) {
+    Logger.log('샘플 행' + (i+2) + ': [' + sample[i].join('] [') + ']');
+  }
+}
+
+/**
+ * 주간집계 시트의 중복 데이터 정리 및 연월 형식 통일
+ * - "2026-2" → "2026-02" 형식으로 통일
+ * - 같은 연월+조원명+주차 중복 행 제거
+ */
+function 주간집계_중복정리() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('주간집계');
+  if (!sheet || sheet.getLastRow() < 2) { Logger.log('주간집계 시트 비어있음'); return; }
+
+  var lastRow = sheet.getLastRow();
+  var data = sheet.getRange(2, 1, lastRow - 1, 9).getDisplayValues();
+  Logger.log('정리 전 총 ' + data.length + '행');
+
+  // 1단계: 연월 형식 통일 + 중복 제거
+  var seen = {};
+  var keepRows = [];
+  var duplicateCount = 0;
+  var formatFixCount = 0;
+
+  for (var i = 0; i < data.length; i++) {
+    var row = data[i].slice();  // 복사
+    var ym = String(row[0]).trim();
+    var parts = ym.split('-');
+
+    // 연월 형식 통일: "2026-2" → "2026-02"
+    if (parts.length === 2) {
+      var fixedYM = parts[0] + '-' + String(parseInt(parts[1])).padStart(2, '0');
+      if (fixedYM !== ym) {
+        row[0] = fixedYM;
+        formatFixCount++;
+      }
+    }
+
+    // 중복 체크 (연월 + 조원명 + 주차)
+    var key = row[0] + '|' + String(row[1]).trim() + '|' + String(row[2]).trim();
+    if (seen[key]) {
+      duplicateCount++;
+    } else {
+      seen[key] = true;
+      keepRows.push(row);
+    }
+  }
+
+  Logger.log('형식 수정: ' + formatFixCount + '건, 중복 제거: ' + duplicateCount + '건');
+  Logger.log('정리 후 ' + keepRows.length + '행');
+
+  // 2단계: 시트 재작성
+  if (duplicateCount > 0 || formatFixCount > 0) {
+    // 기존 데이터 삭제
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow - 1, 9).clearContent();
+    }
+    // 정리된 데이터 쓰기 (연월 열을 텍스트 서식으로 강제 지정)
+    if (keepRows.length > 0) {
+      sheet.getRange(2, 1, keepRows.length, 1).setNumberFormat('@');
+      sheet.getRange(2, 1, keepRows.length, 9).setValues(keepRows);
+    }
+    // 남은 빈 행 삭제
+    var newLastRow = keepRows.length + 1;
+    if (sheet.getMaxRows() > newLastRow + 1) {
+      sheet.deleteRows(newLastRow + 1, sheet.getMaxRows() - newLastRow);
+    }
+    Logger.log('✅ 주간집계 시트 정리 완료');
+  } else {
+    Logger.log('✅ 정리할 항목 없음');
+  }
+}
+
+/**
  * 벌칙관리 시트 생성 (초기설정에서 호출)
  */
 function 벌칙관리시트_생성() {
@@ -743,39 +909,53 @@ function 벌칙관리시트_생성() {
  */
 function 벌칙대상자_등록(yearMonth) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  // 주간집계 시트에서 해당 월 데이터 읽기
-  const weeklySheet = ss.getSheetByName('주간집계');
-  if (!weeklySheet || weeklySheet.getLastRow() < 2) {
-    Logger.log('⚠️ 주간집계 데이터가 없습니다.');
-    return [];
-  }
-
-  const data = weeklySheet.getRange(2, 1, weeklySheet.getLastRow() - 1, 9).getDisplayValues();
-  const penaltyMembers = [];
-
-  Logger.log('벌칙 대상자 검색 (주간집계 기준): ' + yearMonth);
-
-  // 조원별 총결석 합산 (주간집계: 년월, 조원명, 주차, 인증, 필요, 장기오프일, 결석, 상태, 비고)
   const memberAbsences = {};
-  for (const row of data) {
-    const rowYM = String(row[0]).trim();
-    if (rowYM !== yearMonth) continue;
 
-    const name = String(row[1]).trim();
-    const absences = Number(row[6]) || 0;
-    const isFullLongOff = String(row[8]).trim() === '전체장기오프';
+  // yearMonth 비교용: 숫자로 비교하여 "2026-02"와 "2026-2" 모두 매칭
+  const ymParts = yearMonth.split('-');
+  const targetYear = parseInt(ymParts[0]);
+  const targetMonth = parseInt(ymParts[1]);
 
-    if (!memberAbsences[name]) {
-      memberAbsences[name] = 0;
-    }
-    // 전체장기오프 주는 결석에서 제외
-    if (!isFullLongOff) {
-      memberAbsences[name] += absences;
+  // 1차: 주간집계 시트에서 해당 월 데이터 읽기
+  const weeklySheet = ss.getSheetByName('주간집계');
+  if (weeklySheet && weeklySheet.getLastRow() >= 2) {
+    const data = weeklySheet.getRange(2, 1, weeklySheet.getLastRow() - 1, 9).getDisplayValues();
+
+    for (const row of data) {
+      const rowYM = String(row[0]).trim();
+      const rowParts = rowYM.split('-');
+      if (rowParts.length !== 2 || parseInt(rowParts[0]) !== targetYear || parseInt(rowParts[1]) !== targetMonth) continue;
+
+      const name = String(row[1]).trim();
+      const absences = Number(row[6]) || 0;
+      const isFullLongOff = String(row[8]).trim() === '전체장기오프';
+
+      if (!memberAbsences[name]) memberAbsences[name] = 0;
+      if (!isFullLongOff) memberAbsences[name] += absences;
     }
   }
+
+  // 2차: 주간집계에 데이터가 없으면 월별결산 시트에서 폴백 (숫자 비교로 형식 차이 처리)
+  if (Object.keys(memberAbsences).length === 0) {
+    Logger.log('⚠️ 주간집계에 ' + yearMonth + ' 데이터 없음 → 월별결산에서 검색');
+    const summarySheet = ss.getSheetByName(CONFIG.MONTHLY_SUMMARY_SHEET);
+    if (summarySheet && summarySheet.getLastRow() >= 2) {
+      const sData = summarySheet.getRange(2, 1, summarySheet.getLastRow() - 1, 9).getDisplayValues();
+      for (const row of sData) {
+        const rowYM = String(row[0]).trim();
+        const rowParts = rowYM.split('-');
+        if (rowParts.length !== 2 || parseInt(rowParts[0]) !== targetYear || parseInt(rowParts[1]) !== targetMonth) continue;
+        const name = String(row[1]).trim();
+        const absences = Number(row[5]) || 0;  // 월별결산 6번째 열 = 결석
+        memberAbsences[name] = absences;
+      }
+    }
+  }
+
+  Logger.log('벌칙 대상자 검색: ' + yearMonth + ' (조원 ' + Object.keys(memberAbsences).length + '명 데이터)');
 
   // 총결석 4회 이상 → 벌칙 대상
+  const penaltyMembers = [];
   for (const [name, totalAbsences] of Object.entries(memberAbsences)) {
     if (totalAbsences >= 4) {
       penaltyMembers.push({
@@ -3237,6 +3417,156 @@ function 관리자수정시트_초기화() {
 // ==================== Web App 배포 ====================
 
 /**
+ * Slack 인터랙티브 버튼 처리 (doPost)
+ * - 장기오프 승인 버튼 클릭 시 처리
+ */
+function doPost(e) {
+  Logger.log('========================================');
+  Logger.log('doPost 함수 시작! (Slack Interactive)');
+  Logger.log('호출 시각:', new Date());
+
+  try {
+    // Slack interactive payload 파싱
+    const payload = JSON.parse(e.parameter.payload);
+    Logger.log('Payload type:', payload.type);
+
+    // Block Actions (버튼 클릭)
+    if (payload.type === 'block_actions') {
+      const action = payload.actions[0];
+      const actionId = action.action_id;
+      const responseUrl = payload.response_url;
+
+      Logger.log('Action ID:', actionId);
+
+      // 장기오프 승인 버튼
+      if (actionId.startsWith('longoff_approve_')) {
+        const data = JSON.parse(action.value);
+        const name = data.name;
+        const startDate = data.startDate;
+        const endDate = data.endDate;
+        const reason = data.reason || '장기오프';
+        const formRow = data.row ? parseInt(data.row) : 0;
+
+        Logger.log('장기오프 승인 처리:', name, startDate, '~', endDate);
+
+        // 1) 장기오프신청 시트에서 승인 표시
+        if (formRow > 0) {
+          const ss = SpreadsheetApp.getActiveSpreadsheet();
+          const longOffSheet = ss.getSheetByName(CONFIG.LONG_OFF_SHEET);
+          if (longOffSheet) {
+            longOffSheet.getRange(formRow, CONFIG.FORM_COLUMNS.APPROVED + 1).setValue('O');
+          }
+        }
+
+        // 2) 해당 기간 모든 날짜에 장기오프 출석 기록
+        let current = new Date(startDate);
+        const end = new Date(endDate);
+        current.setHours(0, 0, 0, 0);
+        end.setHours(0, 0, 0, 0);
+        let daysProcessed = 0;
+
+        while (current <= end) {
+          const dateStr = Utilities.formatDate(current, 'Asia/Seoul', 'yyyy-MM-dd');
+          출석기록추가(name, dateStr, [], CONFIG.LONG_OFF_STATUS, reason);
+          daysProcessed++;
+          current.setDate(current.getDate() + 1);
+        }
+
+        Logger.log('✅', name, '장기오프', daysProcessed, '일 승인 완료');
+
+        // 3) Slack 메시지 업데이트 (response_url 사용)
+        if (responseUrl) {
+          const updatedBlocks = [
+            {
+              type: 'header',
+              text: { type: 'plain_text', text: '✅ 장기오프 승인 완료', emoji: true }
+            },
+            {
+              type: 'section',
+              fields: [
+                { type: 'mrkdwn', text: '*신청자:*\n' + name },
+                { type: 'mrkdwn', text: '*기간:*\n' + startDate + ' ~ ' + endDate + ' (' + daysProcessed + '일)' }
+              ]
+            },
+            {
+              type: 'context',
+              elements: [
+                { type: 'mrkdwn', text: '✅ 승인됨 | ' + new Date().toLocaleString('ko-KR') }
+              ]
+            }
+          ];
+
+          UrlFetchApp.fetch(responseUrl, {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({
+              replace_original: true,
+              blocks: updatedBlocks
+            }),
+            muteHttpExceptions: true
+          });
+        }
+
+        // 즉시 응답 (Slack 3초 타임아웃 대응)
+        return ContentService.createTextOutput('');
+      }
+
+      // 장기오프 거절 버튼
+      if (actionId.startsWith('longoff_reject_')) {
+        const data = JSON.parse(action.value);
+        const name = data.name;
+        const startDate = data.startDate;
+        const endDate = data.endDate;
+        const responseUrl = payload.response_url;
+
+        Logger.log('장기오프 거절:', name, startDate, '~', endDate);
+
+        // Slack 메시지 업데이트
+        if (responseUrl) {
+          const updatedBlocks = [
+            {
+              type: 'header',
+              text: { type: 'plain_text', text: '❌ 장기오프 거절됨', emoji: true }
+            },
+            {
+              type: 'section',
+              fields: [
+                { type: 'mrkdwn', text: '*신청자:*\n' + name },
+                { type: 'mrkdwn', text: '*기간:*\n' + startDate + ' ~ ' + endDate }
+              ]
+            },
+            {
+              type: 'context',
+              elements: [
+                { type: 'mrkdwn', text: '❌ 거절됨 | ' + new Date().toLocaleString('ko-KR') }
+              ]
+            }
+          ];
+
+          UrlFetchApp.fetch(responseUrl, {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({
+              replace_original: true,
+              blocks: updatedBlocks
+            }),
+            muteHttpExceptions: true
+          });
+        }
+
+        return ContentService.createTextOutput('');
+      }
+    }
+
+    return ContentService.createTextOutput('OK');
+
+  } catch (error) {
+    Logger.log('doPost 오류:', error.message);
+    return ContentService.createTextOutput('Error: ' + error.message);
+  }
+}
+
+/**
  * 통합 doGet 함수 - 모든 웹앱 기능 처리
  * - date 파라미터: 다이제스트 HTML 서빙
  * - month + type 파라미터: 출석/주간 JSON 반환
@@ -4132,19 +4462,35 @@ function 월별결산생성() {
   Logger.log(`✅ ${yearMonth} 월별결산 저장 완료: ${summaryData.length}명`);
   Logger.log('');
 
-  // 전월 주간집계 재생성 후 벌칙 대상자 등록 및 슬랙 알림
+  // 전월 주간집계 재생성
   try {
     const [pYear, pMonth] = yearMonth.split('-').map(Number);
     Logger.log('🔄 전월 주간집계 재생성 중... (' + yearMonth + ')');
     var 집계결과 = 월별주간집계(pYear, pMonth - 1);  // 0-based month
     주간집계저장(pYear, pMonth - 1, 집계결과);
+    SpreadsheetApp.flush();  // 시트 쓰기 즉시 반영
     Logger.log('✅ 전월 주간집계 재생성 완료');
+  } catch (e) {
+    Logger.log('⚠️ 주간집계 재생성 오류 (결산은 정상 완료): ' + e.message);
+  }
 
+  // 벌칙 대상자 등록 및 슬랙 알림 (주간집계 재생성 실패해도 독립 실행)
+  try {
     벌칙대상자_등록(yearMonth);
     벌칙대상자_슬랙알림(yearMonth);
   } catch (e) {
-    Logger.log('⚠️ 벌칙 알림 오류 (결산은 정상 완료): ' + e.message);
+    Logger.log('⚠️ 벌칙 알림 오류: ' + e.message);
   }
+}
+
+/**
+ * 🆕 전월 결산 수동 실행 (에디터에서 바로 실행 가능)
+ * 벌칙 대상자 등록 및 Slack 알림도 함께 실행됨
+ */
+function 전월결산_수동실행() {
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  특정월_결산생성(lastMonth.getFullYear(), lastMonth.getMonth() + 1);
 }
 
 /**
@@ -4357,6 +4703,24 @@ function 특정월_결산생성(year, month) {
   
   Logger.log(`✅ ${yearMonth} 월별결산 저장 완료: ${summaryData.length}명`);
   Logger.log('');
+
+  // 주간집계 생성 후 벌칙 대상자 등록 및 슬랙 알림
+  try {
+    Logger.log('🔄 주간집계 생성 중... (' + yearMonth + ')');
+    var 집계결과 = 월별주간집계(year, month - 1);  // 0-based month
+    주간집계저장(year, month - 1, 집계결과);
+    SpreadsheetApp.flush();  // 시트 쓰기 즉시 반영
+    Logger.log('✅ 주간집계 생성 완료');
+  } catch (e) {
+    Logger.log('⚠️ 주간집계 생성 오류: ' + e.message);
+  }
+
+  try {
+    벌칙대상자_등록(yearMonth);
+    벌칙대상자_슬랙알림(yearMonth);
+  } catch (e) {
+    Logger.log('⚠️ 벌칙 알림 오류: ' + e.message);
+  }
 }
 
 // ==================== 🎯 원클릭 장기오프 시스템 완전 설치 ====================
@@ -4577,16 +4941,17 @@ function onFormSubmit_장기오프처리(e) {
     // 일수 계산
     const days = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
 
-    // Slack 승인 요청 전송
+    // Slack 승인 요청 전송 (인터랙티브 버튼)
     const webhookUrl = getSlackWebhookUrl();
     if (webhookUrl) {
-      const approveUrl = CONFIG.WEB_APP_URL
-        + '?action=longOffApprove'
-        + '&name=' + encodeURIComponent(name)
-        + '&startDate=' + encodeURIComponent(startDateStr)
-        + '&endDate=' + encodeURIComponent(endDateStr)
-        + '&reason=' + encodeURIComponent(reason || '장기오프')
-        + '&row=' + row;
+      // 버튼 클릭 시 전달할 데이터
+      const buttonValue = JSON.stringify({
+        name: name,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        reason: reason || '장기오프',
+        row: row
+      });
 
       const blocks = [
         {
@@ -4607,13 +4972,26 @@ function onFormSubmit_장기오프처리(e) {
         { type: 'divider' },
         {
           type: 'section',
-          text: { type: 'mrkdwn', text: '승인하면 해당 기간이 장기오프로 출석에 반영됩니다.' },
-          accessory: {
-            type: 'button',
-            text: { type: 'plain_text', text: '✅ 승인', emoji: true },
-            style: 'primary',
-            url: approveUrl
-          }
+          text: { type: 'mrkdwn', text: '승인하면 해당 기간이 장기오프로 출석에 반영됩니다.' }
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: '✅ 승인', emoji: true },
+              style: 'primary',
+              action_id: 'longoff_approve_' + row,
+              value: buttonValue
+            },
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: '❌ 거절', emoji: true },
+              style: 'danger',
+              action_id: 'longoff_reject_' + row,
+              value: buttonValue
+            }
+          ]
         }
       ];
 
@@ -4627,7 +5005,7 @@ function onFormSubmit_장기오프처리(e) {
         muteHttpExceptions: true
       });
 
-      Logger.log(`✅ ${name} 장기오프 승인 요청 Slack 전송 완료`);
+      Logger.log(`✅ ${name} 장기오프 승인 요청 Slack 전송 완료 (인터랙티브 버튼)`);
     } else {
       Logger.log('⚠️ Slack Webhook URL 미설정 - 승인 요청 전송 불가');
     }
@@ -4894,11 +5272,15 @@ function 주간집계저장(year, month, 집계결과) {
   }
 
   const 년월 = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const targetYear = year;
+  const targetMonth = month + 1;
 
-  // 기존 데이터 삭제 (해당 년월)
+  // 기존 데이터 삭제 (해당 년월 - 숫자 비교로 "2026-2"와 "2026-02" 모두 매칭)
   const data = sheet.getDataRange().getDisplayValues();
   for (let i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][0]).trim() === 년월) {
+    const rowYM = String(data[i][0]).trim();
+    const parts = rowYM.split('-');
+    if (parts.length === 2 && parseInt(parts[0]) === targetYear && parseInt(parts[1]) === targetMonth) {
       sheet.deleteRow(i + 1);
     }
   }
@@ -4926,7 +5308,9 @@ function 주간집계저장(year, month, 집계결과) {
   }
 
   if (rows.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, rows.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 1, rows.length, 9).setValues(rows);
   }
 
   Logger.log(`주간집계 시트에 ${rows.length}개 행 저장`);
