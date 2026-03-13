@@ -32,9 +32,7 @@ const CONFIG = {
     '보노보노': '1_Mqn79Y1Qp79DWBxcbP-SGVUGjJA3PGw',
     'Magnus': ['1eHjsJ8bnWcK__8EXvukqixzh4wb8CncR', '1e8HUMzD0zW0BG2rkuB3kXoGtK2fw2fhG', '14UsgZTtXpuiBv2jYItigwQGiasIWof5s'],
     'RMSK전사': '1EUT7w_-7Cbu5216j2d6rkiq7DQzZ3p_s',
-    '부천개원의': '1qX9Ek62dIVIJPMZv23QjubSgUo-IRBdT',
-    '바른몸': '1i3lxqexxksy-y_Uft8e1XlUJAmTPmrTw',
-    '엉엉 우는 어피치': '1fUkilgfnZHFHAx9HmmnOHyCcoFqfXvll'
+    '바른몸': '1i3lxqexxksy-y_Uft8e1XlUJAmTPmrTw'
   },
   
   // 시트 이름
@@ -1492,7 +1490,16 @@ function 출석체크_메인() {
           
           if (dateInfo) {
             const { dateStr, year, month } = dateInfo;
-            
+
+            // 이번 달만 체크할지, 모든 달을 체크할지 결정 (마감체크보다 먼저 실행하여 성능 최적화)
+            const shouldProcess = CONFIG.SCAN_ALL_MONTHS ||
+                                  (year === currentYear && month === currentMonth);
+
+            if (!shouldProcess) {
+              skippedCount++;
+              continue;
+            }
+
             // 이미 처리한 날짜면 건너뛰기 (중복 방지)
             if (processedDates.has(dateStr)) {
               Logger.log(`    ⚠ ${dateStr} - 중복 (이미 다른 폴더에서 처리됨)`);
@@ -1506,12 +1513,6 @@ function 출석체크_메인() {
               skippedCount++;
               continue;
             }
-            
-            // 이번 달만 체크할지, 모든 달을 체크할지 결정
-            const shouldProcess = CONFIG.SCAN_ALL_MONTHS || 
-                                  (year === currentYear && month === currentMonth);
-            
-            if (shouldProcess) {
 
               // 🆕 이 부분 추가: 관리자수정이 있으면 건너뛰기
               if (관리자수정존재확인(memberName, dateStr)) {
@@ -1555,9 +1556,6 @@ function 출석체크_메인() {
                 Logger.log(`    ⚠ ${dateStr} - 폴더는 있지만 파일 없음`);
                 skippedCount++;
               }
-            } else {
-              skippedCount++;
-            }
           }
         }
         

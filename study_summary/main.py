@@ -17,6 +17,9 @@ from typing import List, Dict
 # 설정 모듈
 from config import LOG_DIR, OUTPUT_DIR
 
+# 실행 완료 마커 디렉토리
+MARKER_DIR = LOG_DIR / "markers"
+
 # NotebookLM CLI 경로
 NOTEBOOKLM_CLI = Path.home() / "AppData/Roaming/Python/Python314/Scripts/notebooklm.exe"
 
@@ -150,6 +153,13 @@ def run_pipeline(test_mode: bool = False, target_date: str = None):
     if target_date is None:
         target_date = get_target_date()
     logger.info(f"📅 대상 날짜: {target_date}")
+
+    # 중복 실행 방지: 이미 완료된 날짜인지 확인
+    MARKER_DIR.mkdir(parents=True, exist_ok=True)
+    marker_file = MARKER_DIR / f"done_{target_date}.marker"
+    if marker_file.exists() and not test_mode:
+        logger.info(f"⏭️ {target_date}은 이미 처리 완료됨 (마커: {marker_file}). 스킵합니다.")
+        return True
 
     try:
         # 1단계: Google Drive 스캔 또는 테스트 데이터
@@ -288,10 +298,19 @@ const [count, setCount] = useState(0);
             for img in generated_images:
                 logger.info(f"  📁 {img['name']}: {img['path']}")
         
+        # 완료 마커 생성 (중복 실행 방지)
+        if not test_mode:
+            marker_file.write_text(
+                f"completed at {datetime.now().isoformat()}\n"
+                f"generated: {len(generated_images)}/{len(submitted)}\n",
+                encoding="utf-8",
+            )
+            logger.info(f"📌 완료 마커 생성: {marker_file}")
+
         logger.info("\n" + "=" * 50)
         logger.info("✅ 파이프라인 완료!")
         logger.info("=" * 50)
-        
+
         return True
         
     except Exception as e:
